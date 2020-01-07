@@ -6,16 +6,16 @@ using ProgressMeter
 using Plots
 
 mutable struct SVDParams
-    Ubar :: Matrix{Complex{Float64}}
-    Vbar :: Matrix{Complex{Float64}}
-    Σbar_U :: Matrix{Complex{Float64}}
-    Σbar_V :: Matrix{Complex{Float64}}
+    Ubar :: Matrix{Float64}
+    Vbar :: Matrix{Float64}
+    Σbar_U :: Matrix{Float64}
+    Σbar_V :: Matrix{Float64}
     s² :: Float64
+    σ²_V :: Vector{Float64}
 end
 
 struct SVDHyperParams
     σ²_U :: Float64
-    σ²_V :: Float64
     D :: Int64
     T :: Int64
     K :: Int64
@@ -24,38 +24,38 @@ end
 function init_svdparams(D :: Int64, T :: Int64, K :: Int64)
     #Ubar = vcat(I, zeros(Complex{Float64}, D - K, K))
     #Vbar = vcat(I, zeros(Complex{Float64}, T - K, K))
-    Ubar = [rand(ComplexNormal()) for i in 1:D, j in 1:K]
-    Vbar = [rand(ComplexNormal()) for i in 1:T, j in 1:K]
-    Σbar_U = diagm(ones(Complex{Float64}, K))
-    Σbar_V = diagm(ones(Complex{Float64}, K))
+    Ubar = [randn() for i in 1:D, j in 1:K]
+    Vbar = [randn() for i in 1:T, j in 1:K]
+    Σbar_U = diagm(ones(K))
+    Σbar_V = diagm(ones(K))
     s² = 1.0 + 0.0im
     return SVDParams(Ubar, Vbar, Σbar_U, Σbar_V, s²)
     #return SVDParams(U_K[:, 1:K], (V_K * diagm(L_K))[:, 1:K], Σbar_U, Σbar_V, s²)
 end
 
-function loglik(X :: Matrix{Complex{Float64}}, sp :: SVDParams, hp :: SVDHyperParams)
+function loglik(X :: Matrix{Float64}, sp :: SVDParams, hp :: SVDHyperParams)
     M = sp.Ubar * sp.Vbar'
     return -(hp.D * hp.T) * log(π) - hp.T * log(sp.s²) - tr((X - M)' * (X - M)) / sp.s²
 end
 
-function freeenergy(X :: Matrix{Complex{Float64}}, sp :: SVDParams, hp :: SVDHyperParams)
+function freeenergy(X :: Matrix{Float64}, sp :: SVDParams, hp :: SVDHyperParams)
     # compute variationa free energy
     D, T, K = hp.D, hp.T, hp.K
 
-    fenergy = - K * log(real(det(sp.Σbar_U))) - K * D * log(D) -
-              K * log(real(det(sp.Σbar_V))) + K * D * log(hp.σ²_V) -
-              K * (D + T) + D * tr(hp.D * sp.Σbar_U + sp.Ubar' * sp.Ubar) +
-              hp.σ²_V ^ (-1) * tr(hp.T * sp.Σbar_V + sp.Vbar' * sp.Vbar) + D * T * log(sp.s²) +
+    fenergy = - K * log(real(det(sp.Σbar_U))) + K * D * log(hp.σ²_U) -
+              K * log(real(det(sp.Σbar_V))) + K * T * log(det(diagm(sp.σ²_V))) -
+              K * (D + T) + hp.σ²_U ^ (-1) * tr(hp.D * sp.Σbar_U + sp.Ubar' * sp.Ubar) +
+              diagm(sp.σ²_V .^ (-1)) * tr(hp.T * sp.Σbar_V + sp.Vbar' * sp.Vbar) + D * T * log(sp.s²) +
               (tr(X' * X) - 2 * tr(real(X' * sp.Ubar * sp.Vbar')) +
                tr((hp.D * sp.Σbar_U + sp.Ubar' * sp.Ubar) * (hp.T * sp.Σbar_V + sp.Vbar' * sp.Vbar))) / sp.s²
     return real(fenergy)
 end
 
-function update_Ubar!(X :: Matrix{Complex{Float64}}, sp :: SVDParams)
+function update_Ubar!(X :: Matrix{Float64}, sp :: SVDParams)
     sp.Ubar = X * sp.Vbar * sp.Σbar_U / sp.s²
 end
 
-function update_Vbar!(X :: Matrix{Complex{Float64}}, sp :: SVDParams)
+function update_Vbar!(X :: Matrix{Float64}, sp :: SVDParams)
     sp.Vbar = X' * sp.Ubar * sp.Σbar_V / sp.s²
 end
 
@@ -64,16 +64,18 @@ function update_Σbar_U!(sp :: SVDParams, hp :: SVDHyperParams)
 end
 
 function update_Σbar_V!(sp :: SVDParams, hp :: SVDHyperParams)
-    sp.Σbar_V = inv(hp.σ²_V ^ (-1) * I + (hp.D * sp.Σbar_U + sp.Ubar' * sp.Ubar) / sp.s²)
+    sp.Σbar_V = inv(diagm(hp.σ²_V .^ (-1)) + (hp.D * sp.Σbar_U + sp.Ubar' * sp.Ubar) / sp.s²)
 end
 
-function update_s²!(X :: Matrix{Complex{Float64}}, sp :: SVDParams, hp :: SVDHyperParams)
+function update_s²!(X :: Matrix{Float64}, sp :: SVDParams, hp :: SVDHyperParams)
     numer = tr(X' * X - X' * sp.Ubar * sp.Vbar' - sp.Vbar * sp.Ubar' * X) +
             tr((hp.D * sp.Σbar_U + sp.Ubar' * sp.Ubar) * (hp.T * sp.Σbar_V + sp.Vbar' * sp.Vbar))
     sp.s² = real(numer / (hp.D * hp.T))
 end
 
-function bayesiansvd(X :: Matrix{Complex{Float64}}, K :: Int64, n_iter :: Int64;
+function update_σ
+
+function bayesiansvd(X :: Matrix{Float64}, K :: Int64, n_iter :: Int64;
                      σ²_U :: Float64 = 1e5, σ²_V :: Float64 = 1e5)
     # X: data matrix (D×T Complex Matrix)
     # K: truncation rank (integer)
@@ -107,19 +109,16 @@ function bayesiansvd(X :: Matrix{Complex{Float64}}, K :: Int64, n_iter :: Int64;
     return sp_ary, hp, freeenergies, logliks
 end
 
-include("./ComplexNormal.jl")
-
 D = 3
 T = 5
 K = 2
 #X = [rand(ComplexNormal(0im, 1)) for i in 1:D, j in 1:T]
-X = reshape(collect(1:D*T) .+ 1.0im .* (collect(1:D*T)), (D, T))
+X = reshape(collect(1:D*T) .* 1.0, (D, T))
 U_K, L_K, V_K = svd(X)
 U_K, L_K, V_K = U_K[:, 1:K], diagm(L_K[1:K]), V_K[:, 1:K]
 U_K * L_K * V_K'
 
-sp_ary, hp, freeenergies, logliks = bayesiansvd(X, K, 50000, σ²_U = 1/D, σ²_V = 1e10)
-
+sp_ary, hp, freeenergies, logliks = bayesiansvd(X, K, 100, σ²_U = 1/D, σ²_V = 1e10)
 plot(logliks)
 plot(freeenergies)
 
