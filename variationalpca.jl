@@ -82,7 +82,7 @@ function update_Σbar_Z!(pp :: PCAParams, hp :: PCAHyperParams)
 end
 
 function update_Σbar_μ!(pp :: PCAParams, hp :: PCAHyperParams)
-    pp.Σbar_μ = inv(hp.σ²_μ ^ (-1) + T / pp.s²) * diagm(ones(hp.D))
+    pp.Σbar_μ = inv(hp.σ²_μ ^ (-1) + hp.T / pp.s²) * diagm(ones(hp.D))
 end
 
 function update_s²!(X :: Matrix{Complex{Float64}}, pp :: PCAParams, hp :: PCAHyperParams)
@@ -106,6 +106,8 @@ function bayesianpca(X :: Matrix{Complex{Float64}}, K :: Int64, n_iter :: Int64;
 
     logliks = Vector{Float64}(undef, n_iter + 1)
     logliks[1] = loglik(X, pp, hp)
+    s_ary = Vector{Float64}(undef, n_iter + 1)
+    s_ary[1] = pp.s²
     #freeenergies = Vector{Float64}(undef, n_iter + 1)
     #freeenergies[1] = freeenergy(X, sp, hp)
 
@@ -122,12 +124,14 @@ function bayesianpca(X :: Matrix{Complex{Float64}}, K :: Int64, n_iter :: Int64;
 
         #freeenergies[i + 1] = freeenergy(X, sp, hp)
         logliks[i + 1] = loglik(X, pp, hp)
+        s_ary[i + 1] = pp.s²
         next!(progress)
     end
     #return pp, hp, freeenergies, logliks
-    return pp, hp, logliks
+    return pp, hp, logliks, s_ary
 end
 
+include("ComplexNormal.jl")
 iris = dataset("datasets", "iris")
 iris = Matrix(transpose(Matrix{Complex{Float64}}(iris[:, 1:4])))
 K = 2
@@ -135,11 +139,11 @@ K = 2
 PCAModel = fit(PCA, real.(iris), maxoutdim = K)
 PPCAModel = fit(PPCA, real.(iris), maxoutdim = K, method = :em)
 
-pp, hp, logliks = bayesianpca(iris, 2, 1000)
+pp, hp, logliks, s_ary = bayesianpca(iris, 2, 1000)
 M = repeat(pp.μbar, outer = (1, hp.T))
 
 plot(logliks)
-#plot(freeenergies)
+plot(s_ary)
 
 p1 = plot(real.(projection(PCAModel)), lw = 2)
 p2 = plot(real.(loadings(PPCAModel)), lw = 2)

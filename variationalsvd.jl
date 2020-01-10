@@ -3,8 +3,8 @@
 using LinearAlgebra
 using Distributions
 using ProgressMeter
-using Plots
-using RDatasets
+
+include("ComplexNormal.jl")
 
 mutable struct SVDParams
     Ubar :: Matrix{Complex{Float64}}
@@ -23,11 +23,11 @@ struct SVDHyperParams
 end
 
 function init_svdparams(D :: Int64, T :: Int64, K :: Int64)
-    U, L, V = svd(iris)
-    Ubar = U[:, 1:K]
-    Vbar = V[:, 1:K] * diagm(L[1:K])
-    #Ubar = [rand(ComplexNormal()) for i in 1:D, j in 1:K]
-    #Vbar = [rand(ComplexNormal()) for i in 1:T, j in 1:K]
+    #U, L, V = svd(iris)
+    #Ubar = U[:, 1:K]
+    #Vbar = V[:, 1:K] * diagm(L[1:K])
+    Ubar = [rand(ComplexNormal()) for i in 1:D, j in 1:K]
+    Vbar = [rand(ComplexNormal()) for i in 1:T, j in 1:K]
     Σbar_U = diagm(zeros(Complex{Float64}, K))
     Σbar_V = diagm(zeros(Complex{Float64}, K))
     C_V = diagm(ones(Complex{Float64}, K))
@@ -103,8 +103,11 @@ function bayesiansvd(X :: Matrix{Complex{Float64}}, K :: Int64, n_iter :: Int64;
     for i in 1:n_iter
         update_Σbar_U!(sp, hp)
         update_Σbar_V!(sp, hp)
-        update_Ubar!(X, sp)
-        update_Vbar!(X, sp)
+        if i % 2 == 0
+            update_Ubar!(X, sp)
+        else
+            update_Vbar!(X, sp)
+        end
         update_C_V!(sp, hp)
         update_s²!(X, sp, hp)
 
@@ -116,28 +119,3 @@ function bayesiansvd(X :: Matrix{Complex{Float64}}, K :: Int64, n_iter :: Int64;
     return sp_ary, hp, freeenergies, logliks
 end
 
-include("ComplexNormal.jl")
-
-iris = dataset("datasets", "iris")
-iris = Matrix(transpose(Matrix{Complex{Float64}}(iris[:, 1:4])))
-K = 2
-D, T = size(iris)
-
-sp_ary, hp, freeenergies, logliks = bayesiansvd(iris, K, 100, σ²_U = 1 / D)
-
-plot(logliks)
-plot(freeenergies)
-
-U, L, V = svd(iris)
-UK, LK, VK = U[:, 1:K], diagm(L[1:K]), V[:, 1:K]
-
-p1 = heatmap(1:T, 1:D, real.(iris))
-p2 = heatmap(1:T, 1:D, real.(UK * LK * VK'))
-p3 = heatmap(1:T, 1:D, real.(sp_ary[end].Ubar * sp_ary[end].Vbar'))
-plot(p1, p2, p3)
-
-p1 = scatter(real.(V[:, 1]), real.(V[:, 2]))
-p2 = scatter(real.(sp_ary[end].Vbar[:, 1]), real.(sp_ary[end].Vbar[:, 2]))
-
-hoge = [sp_ary[i].C_V[1, 1] for i in 1:1001]
-plot(real.(hoge))
