@@ -1,5 +1,4 @@
-# Variational Inference for Bayesian SVD model
-
+# Variational Inference for Bayesian SVD model 
 using LinearAlgebra
 using Distributions
 using ProgressMeter
@@ -22,12 +21,16 @@ struct SVDHyperParams
     K :: Int64
 end
 
-function init_svdparams(D :: Int64, T :: Int64, K :: Int64)
-    #U, L, V = svd(iris)
-    #Ubar = U[:, 1:K]
-    #Vbar = V[:, 1:K] * diagm(L[1:K])
-    Ubar = [rand(ComplexNormal()) for i in 1:D, j in 1:K]
-    Vbar = [rand(ComplexNormal()) for i in 1:T, j in 1:K]
+function init_svdparams(X :: Matrix{Complex{Float64}}, D :: Int64, T :: Int64, K :: Int64;
+                        svdinit :: Bool = true)
+    if svdinit
+        U, L, V = svd(X)
+        Ubar = U[:, 1:K]
+        Vbar = V[:, 1:K] * diagm(L[1:K])
+    else
+        Ubar = [rand(ComplexNormal()) for i in 1:D, j in 1:K]
+        Vbar = [rand(ComplexNormal()) for i in 1:T, j in 1:K]
+    end
     Σbar_U = diagm(zeros(Complex{Float64}, K))
     Σbar_V = diagm(zeros(Complex{Float64}, K))
     C_V = diagm(ones(Complex{Float64}, K))
@@ -82,13 +85,14 @@ function update_s²!(X :: Matrix{Complex{Float64}}, sp :: SVDParams, hp :: SVDHy
 end
 
 function bayesiansvd(X :: Matrix{Complex{Float64}}, K :: Int64, n_iter :: Int64;
-                     σ²_U :: Float64 = 1e5)
+                     σ²_U :: Float64 = 1e5, σ²_V :: Float64 = 1e5,
+                     svdinit :: Bool = false, learn_C_V :: Bool = true)
     # X: data matrix (D×T Complex Matrix)
     # K: truncation rank (integer)
     # n_iter: the number of iterations of variational inference (integer)
 
     D, T = size(X)
-    sp = init_svdparams(D, T, K)
+    sp = init_svdparams(X, D, T, K, svdinit = svdinit)
     hp = SVDHyperParams(σ²_U, D, T, K)
 
     logliks = Vector{Float64}(undef, n_iter + 1)
@@ -99,6 +103,10 @@ function bayesiansvd(X :: Matrix{Complex{Float64}}, K :: Int64, n_iter :: Int64;
     sp_ary = Vector{SVDParams}(undef, n_iter + 1)
     sp_ary[1] = deepcopy(sp)
 
+    if !learn_C_V
+        sp.C_V = diagm(repeat([σ²_V], K))
+    end
+
     progress = Progress(n_iter)
     for i in 1:n_iter
         update_Σbar_U!(sp, hp)
@@ -108,7 +116,9 @@ function bayesiansvd(X :: Matrix{Complex{Float64}}, K :: Int64, n_iter :: Int64;
         else
             update_Vbar!(X, sp)
         end
-        update_C_V!(sp, hp)
+        if learn_C_V
+            update_C_V!(sp, hp)
+        end
         update_s²!(X, sp, hp)
 
         freeenergies[i + 1] = freeenergy(X, sp, hp)

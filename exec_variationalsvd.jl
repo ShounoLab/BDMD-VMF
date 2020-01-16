@@ -8,7 +8,8 @@ iris = Matrix(transpose(Matrix{Complex{Float64}}(iris[:, 1:4])))
 K = 2
 D, T = size(iris)
 
-sp_ary, hp, freeenergies, logliks = bayesiansvd(iris, K, 100, σ²_U = 1 / D)
+sp_ary, hp, freeenergies, logliks = bayesiansvd(iris, K, 100, σ²_U = 1 / D, svdinit = true,
+                                                learn_C_V = true)
 
 p1 = plot(logliks, lw = 2, title = "log likelihood (iris)", legend = :none)
 p2 = plot(freeenergies, lw = 2, title = "free energy (iris)", legend = :none)
@@ -32,14 +33,22 @@ p3 = heatmap(1:T, 1:D, X3, clims = (cmin, cmax),
 p = plot(p1, p2, p3)
 savefig(p, "iris_reconst.pdf")
 
+X1 = real.(VK * LK)
+X2 = real.(sp_ary[end].Vbar)
+p1 = scatter(X1[:, 1], X1[:, 2], title = "naive SVD")
+p2 = scatter(X2[:, 1], X2[:, 2], title = "variational SVD")
+p = plot(p1, p2)
+savefig(p, "iris_projected.pdf")
+
 
 mtcars = dataset("datasets", "mtcars")
 delete!(mtcars, [:Model, :VS, :AM])
 mtcars = Matrix(transpose(Matrix{Complex{Float64}}(mtcars)))
-K = 4
+K = 2
 D, T = size(mtcars)
 
-sp_ary, hp, freeenergies, logliks = bayesiansvd(mtcars, K, 200, σ²_U = 1 / D)
+sp_ary, hp, freeenergies, logliks = bayesiansvd(mtcars, K, 100, σ²_U = 1 / D, svdinit = true,
+                                                learn_C_V = true)
 
 p1 = plot(logliks[2:end], lw = 2, title = "log likelihood (mtcars)", legend = :none)
 p2 = plot(freeenergies, lw = 2, title = "free energy (mtcars)", legend = :none)
@@ -66,5 +75,12 @@ p3 = heatmap(1:T, 1:D, X3, clims = (cmin, cmax),
              xlabel = "sample", ylabel = "feature")
 p = plot(p1, p2, p3)
 savefig(p, "mtcars_reconst.pdf")
+
+X1 = real.(VK * LK)
+X2 = real.(sp_ary[end].Vbar)
+p1 = scatter(X1[:, 1], X1[:, 2], title = "naive SVD")
+p2 = scatter(X2[:, 1], X2[:, 2], title = "variational SVD")
+p = plot(p1, p2)
+savefig(p, "mtcars_projected.pdf")
 
 
