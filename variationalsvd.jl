@@ -100,9 +100,6 @@ function bayesiansvd(X :: Matrix{Complex{Float64}}, K :: Int64, n_iter :: Int64;
     freeenergies = Vector{Float64}(undef, n_iter + 1)
     freeenergies[1] = freeenergy(X, sp, hp)
 
-    sp_ary = Vector{SVDParams}(undef, n_iter + 1)
-    sp_ary[1] = deepcopy(sp)
-
     if !learn_C_V
         sp.C_V = diagm(repeat([σ²_V], K))
     end
@@ -123,9 +120,8 @@ function bayesiansvd(X :: Matrix{Complex{Float64}}, K :: Int64, n_iter :: Int64;
 
         freeenergies[i + 1] = freeenergy(X, sp, hp)
         logliks[i + 1] = loglik(X, sp, hp)
-        sp_ary[i + 1] = deepcopy(sp)
         next!(progress)
     end
-    return sp_ary, hp, freeenergies, logliks
+    return sp, hp, freeenergies, logliks
 end
 
