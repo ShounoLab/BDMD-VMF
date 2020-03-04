@@ -40,7 +40,7 @@ end
 
 function loglik(X :: Matrix{Complex{Float64}}, sp :: SVDParams, hp :: SVDHyperParams)
     M = sp.Ubar * sp.Vbar'
-    return -(hp.D * hp.T) * log(π) - hp.T * log(sp.s²) - tr((X - M)' * (X - M)) / sp.s²
+    return -(hp.D * hp.T) * log(π * sp.s²) - tr((X - M)' * (X - M)) / sp.s²
 end
 
 function freeenergy(X :: Matrix{Complex{Float64}}, sp :: SVDParams, hp :: SVDHyperParams)
@@ -64,11 +64,15 @@ function update_Vbar!(X :: Matrix{Complex{Float64}}, sp :: SVDParams)
     sp.Vbar = X' * sp.Ubar * sp.Σbar_V / sp.s²
 end
 
-function update_Σbar_U!(sp :: SVDParams, hp :: SVDHyperParams)
+function update_Vbar!(X :: Matrix{Union{Complex{Float64}, Missing}}, sp :: SVDParams)
+    sp.Vbar = X' * sp.Ubar * sp.Σbar_V / sp.s²
+end
+
+function update_Σbar_U!(sp :: SVDParams, hp :: SVDHyperParams; hasmissing = false)
     sp.Σbar_U = inv(hp.σ²_U ^ (-1) * I + (hp.T * sp.Σbar_V + sp.Vbar' * sp.Vbar) / sp.s²)
 end
 
-function update_Σbar_V!(sp :: SVDParams, hp :: SVDHyperParams)
+function update_Σbar_V!(sp :: SVDParams, hp :: SVDHyperParams; hasmissing = false)
     sp.Σbar_V = inv(sp.C_V ^ (-1) + (hp.D * sp.Σbar_U + sp.Ubar' * sp.Ubar) / sp.s²)
 end
 
@@ -87,6 +91,51 @@ end
 function bayesiansvd(X :: Matrix{Complex{Float64}}, K :: Int64, n_iter :: Int64;
                      σ²_U :: Float64 = 1e5, σ²_V :: Float64 = 1e5,
                      svdinit :: Bool = false, learn_C_V :: Bool = true)
+    # Bayesian SVD without missing values
+    # --- arguments ---
+    # X: data matrix (D×T Complex Matrix)
+    # K: truncation rank (integer)
+    # n_iter: the number of iterations of variational inference (integer)
+
+    D, T = size(X)
+    sp = init_svdparams(X, D, T, K, svdinit = svdinit)
+    hp = SVDHyperParams(σ²_U, D, T, K)
+
+    logliks = Vector{Float64}(undef, n_iter + 1)
+    logliks[1] = loglik(X, sp, hp)
+    freeenergies = Vector{Float64}(undef, n_iter + 1)
+    freeenergies[1] = freeenergy(X, sp, hp)
+
+    if !learn_C_V
+        sp.C_V = diagm(repeat([σ²_V], K))
+    end
+
+    progress = Progress(n_iter)
+    for i in 1:n_iter
+        update_Σbar_U!(sp, hp)
+        update_Σbar_V!(sp, hp)
+        if i % 2 == 0
+            update_Ubar!(X, sp)
+        else
+            update_Vbar!(X, sp)
+        end
+        if learn_C_V
+            update_C_V!(sp, hp)
+        end
+        update_s²!(X, sp, hp)
+
+        freeenergies[i + 1] = freeenergy(X, sp, hp)
+        logliks[i + 1] = loglik(X, sp, hp)
+        next!(progress)
+    end
+    return sp, hp, freeenergies, logliks
+end
+
+function bayesiansvd(X :: Matrix{Union{Complex{Float64}, Missing}}, K :: Int64, n_iter :: Int64;
+                     σ²_U :: Float64 = 1e5, σ²_V :: Float64 = 1e5,
+                     svdinit :: Bool = false, learn_C_V :: Bool = true)
+    # Bayesian SVD with missing values
+    # --- arguments ---
     # X: data matrix (D×T Complex Matrix)
     # K: truncation rank (integer)
     # n_iter: the number of iterations of variational inference (integer)
