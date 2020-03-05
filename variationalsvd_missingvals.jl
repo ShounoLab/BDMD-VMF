@@ -33,6 +33,8 @@ function SVDParams(Ubar :: Matrix{Complex{Float64}}, Vbar :: Matrix{Complex{Floa
     Σbar_U_inv = Array{Complex{Float64}, 3}(undef, (D, K, K))
     Σbar_V_inv = Array{Complex{Float64}, 3}(undef, (T, K, K))
 
+    println(K)
+
     map(d -> Σbar_U_inv[d, :, :] .= inv(Σbar_U[d, :, :]), 1:D)
     map(t -> Σbar_V_inv[t, :, :] .= inv(Σbar_V[t, :, :]), 1:T)
 
@@ -134,8 +136,8 @@ function update_Σbar_U!(X :: Matrix{Union{Missing, Complex{Float64}}},
                 @views sum_vv += conj(sp.Vbar[t, :]) * transpose(sp.Vbar[t, :]) + sp.Σbar_V[t, :, :]
             end
         end
-        map(d -> sp.Σbar_U_inv[d, :, :] = inv(hp.C_U) + sum_vv ./ sp.s², 1:D)
-        map(d -> sp.Σbar_U[d, :, :] = inv(sp.Σbar_U_inv[d, :, :]), 1:D)
+        sp.Σbar_U_inv[d, :, :] = inv(hp.C_U) + sum_vv ./ sp.s²
+        sp.Σbar_U[d, :, :] = inv(sp.Σbar_U_inv[d, :, :])
     end
 end
 
@@ -148,8 +150,8 @@ function update_Σbar_V!(X :: Matrix{Union{Missing, Complex{Float64}}},
                 @views sum_uu += conj(sp.Ubar[d, :]) * transpose(sp.Ubar[d, :]) + sp.Σbar_U[d, :, :]
             end
         end
-        map(t -> sp.Σbar_V_inv[t, :, :] = inv(sp.C_V) + sum_uu ./ sp.s², 1:T)
-        map(t -> sp.Σbar_V[t, :, :] = inv(sp.Σbar_V_inv[t, :, :]), 1:T)
+        sp.Σbar_V_inv[t, :, :] = inv(sp.C_V) + sum_uu ./ sp.s²
+        sp.Σbar_V[t, :, :] = inv(sp.Σbar_V_inv[t, :, :])
     end
 end
 
