@@ -19,6 +19,13 @@ struct DMDHyperParams
     K :: Int64
 end
 
+function DMDHyperParams(sp :: SVDParams, shp :: SVDHyperParams;
+                        σ²_λ :: Float64 = 1e5, σ²_w :: Float64 = 1e5,
+                        α :: Float64 = 0.01, β :: Float64 = 0.01)
+    # outer constructor
+    return DMDHyperParams(sp.Ubar, sp.Σbar_U, σ²_λ, σ²_w, α, β,
+                          shp.D, shp.T, shp.K)
+end
 
 function loglik(X :: Matrix{Complex{Float64}}, dp :: DMDParams,
                 hp :: DMDHyperParams)
