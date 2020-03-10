@@ -1,13 +1,15 @@
 using Plots
 using StatsBase
 using JLD
+using Random
 include("variationalsvd_missingvals.jl")
 include("bayesiandmd_missingvals.jl")
 
-D = 16
+Random.seed!(123)
+
+D = 32
 T = 64
 K = 2
-
 
 ### load data ###
 include("Utils/toydata.jl")
@@ -60,4 +62,14 @@ dp_ary, logliks = run_sampling(X, hp, n_iter)
 λ1 = [dp_ary[i].λ[1] for i in 1:n_iter]
 λ2 = [dp_ary[i].λ[2] for i in 1:n_iter]
 
-save("./mcmc_oscillator_missing.jld", "dp_ary", dp_ary, "hp", hp)
+outdir = "output"
+
+if !isdir(outdir)
+    mkdir(outdir)
+end
+
+save("${outdir}/mcmc_oscillator_missing.jld",
+     "data_origin", X,
+     "data", X_missing,
+     "dp_ary", dp_ary,
+     "hp", hp)

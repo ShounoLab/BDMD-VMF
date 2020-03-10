@@ -38,9 +38,9 @@ function BDMDHyperParams(sp :: SVDParams, shp :: SVDHyperParams;
 
     Γᵤ⁻¹ = C' * transpose(Σbar_U_inv) * C
     Γᵤ = inv(Γᵤ⁻¹)
-    return DMDHyperParams(vec(sp.Ubar), Σbar_U, Γᵤ, Σbar_U_inv, Γᵤ⁻¹,
-                          σ²_λ, σ²_w, α, β,
-                          shp.D, shp.T, shp.K)
+    return BDMDHyperParams(vec(sp.Ubar), Σbar_U, Γᵤ, Σbar_U_inv, Γᵤ⁻¹,
+                           σ²_λ, σ²_w, α, β,
+                           shp.D, shp.T, shp.K)
 end
 
 function commutation_matrix(M :: Int64, N :: Int64)
@@ -53,18 +53,44 @@ function commutation_matrix(M :: Int64, N :: Int64)
     return diagm(ones(Int64, M * N))[A, :]
 end
 
-function sparsechol(A :: Matrix{Complex{Float64}})
-    return cholesky(sparse(Hermitian(A)))
+function sparsechol(A :: Matrix{Complex{Float64}};
+                    shift :: Float64 = 1e-5)
+    try
+        return cholesky(sparse(Hermitian(A)), shift = shift)
+    catch e
+        if isa(e, PosDefException)
+            if shift < 100.0
+                return sparsechol(A, shift = 10 * shift)
+            else
+                println("shift value: ", shift)
+                throw(e)
+            end
+        else
+            throw(e)
+        end
+    end
 end
 
 function logdetΣ(Σ :: Matrix{Complex{Float64}})
-    return logdet(sparsechol(Σ))
+    try
+        return logdet(sparsechol(Σ))
+    catch
+        if isa(e, PosDefException)
+            return log(det(lu(sparse(A))))
+        end
+    end
 end
 
-function chol_inv(A :: Matrix{Complex{Float64}})
-    L = Matrix(sparse(sparsechol(A).L))
-    invL = inv(L)
-    return invL' * invL
+function fact_inv(A :: Matrix{Complex{Float64}})
+    try
+        L = Matrix(sparse(sparsechol(A).L))
+        invL = inv(L)
+        return invL' * invL
+    catch e
+        if isa(e, PosDefException)
+            return inv(lu(sparse(A)))
+        end
+    end
 end
 
 function loglik(X :: Matrix{Union{Missing, Complex{Float64}}},
@@ -72,7 +98,7 @@ function loglik(X :: Matrix{Union{Missing, Complex{Float64}}},
     I_D = diagm(ones(hp.D))
     G = zeros(Complex{Float64}, hp.K, hp.T)
     map(t -> G[:, t] = dp.W * (dp.λ .^ (t - 1)), 1:hp.T)
-    Σᵤ⁻¹ = Hermitian(kron(transpose(G * G'), I_D) ./ dp.σ² + hp.Γbar_U_inv)
+    Σᵤ⁻¹ = kron(transpose(G * G'), I_D) ./ dp.σ² + hp.Γbar_U_inv
     Σᵤ = chol_inv(Σᵤ⁻¹)
 
     #Σₓ⁻¹ = I ./ dp.σ² - kron(transpose(G), I_D) * Σᵤ * kron(conj(G), I_D)
