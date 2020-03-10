@@ -55,12 +55,13 @@ p = plot(p1, p2, p3, p4)
 
 
 ### Bayesian DMD ###
-n_iter = 10000
+n_iter = 5000
 hp = BDMDHyperParams(sp, vhp)
 dp_ary, logliks = run_sampling(X, hp, n_iter)
 
 λ1 = [dp_ary[i].λ[1] for i in 1:n_iter]
 λ2 = [dp_ary[i].λ[2] for i in 1:n_iter]
+σ = [dp_ary[i].σ² for i in 1:n_iter]
 
 outdir = "output"
 
@@ -68,7 +69,7 @@ if !isdir(outdir)
     mkdir(outdir)
 end
 
-save("${outdir}/mcmc_oscillator_missing.jld",
+save("$outdir/mcmc_oscillator_missing.jld",
      "data_origin", X,
      "data", X_missing,
      "dp_ary", dp_ary,

@@ -53,25 +53,12 @@ function commutation_matrix(M :: Int64, N :: Int64)
     return diagm(ones(Int64, M * N))[A, :]
 end
 
-function sparsechol(A :: Matrix{Complex{Float64}};
-                    shift :: Float64 = 1e-5)
-    try
-        return cholesky(sparse(Hermitian(A)), shift = shift)
-    catch e
-        if isa(e, PosDefException)
-            if shift < 100.0
-                return sparsechol(A, shift = 10 * shift)
-            else
-                println("shift value: ", shift)
-                throw(e)
-            end
-        else
-            throw(e)
-        end
-    end
+function sparsechol(A :: SparseMatrixCSC{Complex{Float64}},
+                    shift :: Float64 = 1e-3)
+    return cholesky(Hermitian(A), shift = shift)
 end
 
-function logdetΣ(Σ :: Matrix{Complex{Float64}})
+function logdetΣ(Σ :: SparseMatrixCSC{Complex{Float64}})
     try
         return logdet(sparsechol(Σ))
     catch
@@ -81,54 +68,75 @@ function logdetΣ(Σ :: Matrix{Complex{Float64}})
     end
 end
 
-function fact_inv(A :: Matrix{Complex{Float64}})
+function fact_inv(A :: SparseMatrixCSC{Complex{Float64}})
     try
         L = Matrix(sparse(sparsechol(A).L))
         invL = inv(L)
         return invL' * invL
     catch e
         if isa(e, PosDefException)
-            return inv(lu(sparse(A)))
+            return inv(lu(A))
         end
     end
 end
 
+function fact_inv_logdet(A :: SparseMatrixCSC{Complex{Float64}})
+    #try
+    #    println("cholesky")
+    #    F = sparsechol(A)
+    #    L = Matrix(sparse(F.PtL))
+    #    invL = inv(L)
+    #    return sparse(invL' * invL), -logdet(F)
+    #catch e
+    #    if isa(e, PosDefException)
+    #        F = lu(A)
+    #        println("LU")
+    #        return sparse(inv(F)), -log(det(F))
+    #    end
+    #end
+    F = lu(A)
+    return sparse(inv(F)), -log(det(F))
+end
+
 function loglik(X :: Matrix{Union{Missing, Complex{Float64}}},
                 dp :: BDMDParams, hp :: BDMDHyperParams)
-    I_D = diagm(ones(hp.D))
-    G = zeros(Complex{Float64}, hp.K, hp.T)
-    map(t -> G[:, t] = dp.W * (dp.λ .^ (t - 1)), 1:hp.T)
-    Σᵤ⁻¹ = kron(transpose(G * G'), I_D) ./ dp.σ² + hp.Γbar_U_inv
-    Σᵤ = chol_inv(Σᵤ⁻¹)
-
-    #Σₓ⁻¹ = I ./ dp.σ² - kron(transpose(G), I_D) * Σᵤ * kron(conj(G), I_D)
-    Σₓ⁻¹ = - kron(transpose(G), I_D) * Σᵤ * kron(conj(G), I_D)
-    map(i -> Σₓ⁻¹[i, i] += inv(dp.σ²), 1:(hp.D * hp.T))
-
-    # inversion of Σₓ⁻¹ : Woodbury formula
-    #Σₓ = I * dp.σ² + dp.σ² ^ 2 * kron(transpose(G), I_D) *
-    #                 inv(Hermitian(Σᵤ⁻¹ - dp.σ² .* kron(transpose(G * G'), I_D))) *
-    #                 kron(conj(G), I_D)
-    Σₓ = dp.σ² ^ 2 * kron(transpose(G), I_D) *
-                     chol_inv(Σᵤ⁻¹ - dp.σ² .* kron(transpose(G * G'), I_D)) *
-                     kron(conj(G), I_D)
-    map(i -> Σₓ[i, i] += dp.σ², 1:(hp.D * hp.T))
-
-    inv(Σᵤ⁻¹ - dp.σ² .* kron(transpose(G * G'), I_D))
-
-    vecXbar = Σₓ * kron(transpose(G), I_D) *
-              Σᵤ * hp.Γbar_U_inv * hp.vecUbar
-
-    # use non-missing entries to compute log likelihood
     vecX = vec(X)
     vecX = vec(X_missing)
     missvec = .!ismissing.(vecX)
     vecX_com = vecX[missvec]
-    vecXbar_com = vecXbar[missvec]
-    Σₓ_com = Σₓ[missvec, missvec]
-    Σₓ⁻¹_com = Σₓ⁻¹[missvec, missvec]
+    Nmiss = sum(missvec)
 
-    logL = -real(length(vecX_com) * log(π) + logdetΣ(Σₓ_com) +
+    I_D = diagm(ones(hp.D))
+    G = zeros(Complex{Float64}, hp.K, hp.T)
+    map(t -> G[:, t] = dp.W * (dp.λ .^ (t - 1)), 1:hp.T)
+    GtId = sparse(kron(transpose(G), I_D))
+    GtId_com = GtId[missvec, :]
+    GtId_com2 = GtId_com' * GtId_com
+
+    Γᵤ⁻¹ = sparse(hp.Γbar_U_inv)
+
+    Σᵤ⁻¹ = GtId_com2 / dp.σ² + Γᵤ⁻¹
+    Σᵤ, logdetΣᵤ = fact_inv_logdet(Σᵤ⁻¹)
+
+    #Σₓ⁻¹_com = I ./ dp.σ² - GtId_com * Σᵤ * GtId_com
+    Σₓ⁻¹_com = - GtId_com * Σᵤ * GtId_com'
+    map(i -> Σₓ⁻¹_com[i, i] += inv(dp.σ²), 1:Nmiss)
+    # inversion of Σₓ⁻¹ : Woodbury formula
+    #Σₓ_com = I * dp.σ² + dp.σ² ^ 2 * GtId_com *
+    #                     inv(Hermitian(Σᵤ⁻¹ - dp.σ² * GtId_com2)) *
+    #                     GtId_com'
+    Σ₁_com, logdetΣ₁_com = fact_inv_logdet(Σᵤ⁻¹ - dp.σ² * GtId_com2)
+
+
+    Σₓ_com = dp.σ² ^ 2 * GtId_com * Σ₁_com * GtId_com'
+    map(i -> Σₓ_com[i, i] += dp.σ², 1:Nmiss)
+
+    vecXbar_com = Σₓ_com * GtId_com * Σᵤ * Γᵤ⁻¹ * hp.vecUbar
+
+    # determinant lemma
+    logdetΣₓ_com = Nmiss * log(dp.σ²) - logdetΣᵤ + logdetΣ₁_com
+
+    logL = -real(Nmiss * log(π * dp.σ²) + logdetΣₓ_com +
                 (vecX_com - vecXbar_com)' * Σₓ⁻¹_com * (vecX_com - vecXbar_com))
     return logL
 end
