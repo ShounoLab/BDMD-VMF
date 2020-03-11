@@ -7,6 +7,7 @@
 # allow
 !*.txt
 !*.md
+!*.jld2
 
 !*.jl
 
