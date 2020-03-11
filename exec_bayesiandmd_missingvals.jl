@@ -1,14 +1,16 @@
 using Plots
 using StatsBase
-using JLD
+using JLD2
 using Random
+using MKLSparse
+
 include("variationalsvd_missingvals.jl")
 include("bayesiandmd_missingvals.jl")
 
-Random.seed!(123)
+Random.seed!(1234)
 
-D = 32
-T = 64
+D = 128
+T = 256
 K = 2
 
 ### load data ###
@@ -18,14 +20,16 @@ X = CSV.read("data/toydata_oscillator.csv")
 X = Matrix(transpose(Matrix{Union{Missing, Complex{Float64}}}(parse.(Complex{Float64}, X))))
 
 ### drop missing data ###
-X_missing = deepcopy(X)
-missing_prob = 0.3
-missing_inds = rand(Bernoulli(1 - missing_prob), size(X))
-X_missing[findall(iszero.(missing_inds))] .= missing
+#sr_mag = 2
+#Tmag = sr_mag * T
+#X_missing = make_missing(X, sr_mag = sr_mag)
+X_missing = make_missing(X, prob = 0.5)
 
 t_ary = collect(range(0, 4 * pi, length = T))
+#tmag_ary = collect(range(0, 4 * pi, length = Tmag))
 d_ary = collect(range(-5, 5, length = D))
 p1 = heatmap(t_ary, d_ary, real.(X))
+#p2 = heatmap(tmag_ary, d_ary, real.(X_missing))
 p2 = heatmap(t_ary, d_ary, real.(X_missing))
 plot(p1, p2)
 
@@ -48,20 +52,35 @@ p2 = heatmap(1:T, 1:D, X2, clims = (cmin, cmax),
 p3 = heatmap(1:T, 1:D, X3, clims = (cmin, cmax),
              title = "variational SVD",
              xlabel = "t", ylabel = "x")
-p4 = heatmap(1:T, 1:D, abs.(X1 .- X3), clims = (cmin, cmax),
-             title = "abs(diff)",
-             xlabel = "t", ylabel = "x")
-p = plot(p1, p2, p3, p4)
+p = plot(p1, p2, p3)
 
 
 ### Bayesian DMD ###
-n_iter = 5000
+n_iter = 10000
 hp = BDMDHyperParams(sp, vhp)
 dp_ary, logliks = run_sampling(X, hp, n_iter)
+@save "$outdir/mcmc_oscillator_missing.jld2" X X_missing dp_ary hp
 
-λ1 = [dp_ary[i].λ[1] for i in 1:n_iter]
-λ2 = [dp_ary[i].λ[2] for i in 1:n_iter]
-σ = [dp_ary[i].σ² for i in 1:n_iter]
+dp_map = map_bdmd(dp_ary, hp, 5000)
+X_res = reconstruct_map(dp_map, hp)
+
+# naive DMD
+include("DMD.jl")
+naive_dp = solve_dmd(X, K)
+
+λs = Array{ComplexF64, 2}(undef, K, n_iter)
+Ws = Array{ComplexF64, 3}(undef, K, K, n_iter)
+for k in 1:K
+    map(i -> λs[k, i] = dp_ary[i].λ[k], 1:n_iter)
+    for l in 1:K
+        map(i -> Ws[k, l, i] = dp_ary[i].W[k, l], 1:n_iter)
+    end
+end
+p1 = plot(real.(transpose(λs)), title = "traceplot of eigvals (real)")
+hline!(real.([naive_dp.λ[1], naive_dp.λ[2]]), lw = 2)
+p2 = plot(imag.(transpose(λs)), title = "traceplot of eigvals (imag)")
+hline!(imag.([naive_dp.λ[1], naive_dp.λ[2]]), lw = 2)
+plot(p1, p2)
 
 outdir = "output"
 
@@ -69,8 +88,3 @@ if !isdir(outdir)
     mkdir(outdir)
 end
 
-save("$outdir/mcmc_oscillator_missing.jld",
-     "data_origin", X,
-     "data", X_missing,
-     "dp_ary", dp_ary,
-     "hp", hp)

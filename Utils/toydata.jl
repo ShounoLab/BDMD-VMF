@@ -68,3 +68,22 @@ function gen_oscillator(fname :: String, D :: Int64, T :: Int64, σ :: Float64;
 
     return nothing
 end
+
+function make_missing(X :: Matrix{Union{Missing, Complex{Float64}}};
+                      prob :: Union{Nothing, Float64} = nothing,
+                      sr_mag :: Union{Nothing, Int64} = nothing)
+    if isnothing(sr_mag)
+        X_missing = deepcopy(X)
+        missing_inds = rand(Bernoulli(1 - prob), size(X))
+        X_missing[findall(iszero.(missing_inds))] .= missing
+        return X_missing
+    else
+        X_missing = Matrix{Union{Missing, Complex{Float64}}}(missing, size(X)[1], sr_mag * size(X)[2])
+        for (i, t) in enumerate(1:sr_mag:(sr_mag * size(X)[2]))
+            X_missing[:, t] .= X[:, i]
+        end
+        return X_missing
+    end
+end
+
+

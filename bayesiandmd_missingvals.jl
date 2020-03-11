@@ -1,6 +1,7 @@
 using Distributions
 using ProgressMeter
 using SparseArrays
+using KernelDensity
 
 mutable struct BDMDParams
     λ :: Vector{Complex{Float64}}
@@ -45,12 +46,14 @@ end
 
 function commutation_matrix(M :: Int64, N :: Int64)
     # get commutation matrix of vectrized matrix
+ 
+
     # see Def.2.1 in Magnus and Neudecker (1979) for details
 
     A = reshape(1:(M * N), (M, N))'
     A = vec(A)
 
-    return diagm(ones(Int64, M * N))[A, :]
+    return sparse(diagm(ones(Int64, M * N))[A, :])
 end
 
 function sparsechol(A :: SparseMatrixCSC{Complex{Float64}},
@@ -95,21 +98,20 @@ function fact_inv_logdet(A :: SparseMatrixCSC{Complex{Float64}})
     #    end
     #end
     F = lu(A)
-    return sparse(inv(F)), -log(det(F))
+    return sparse(inv(F)), -sum(log.(diag(F.U ./ F.Rs)))
 end
 
 function loglik(X :: Matrix{Union{Missing, Complex{Float64}}},
                 dp :: BDMDParams, hp :: BDMDHyperParams)
     vecX = vec(X)
-    vecX = vec(X_missing)
     missvec = .!ismissing.(vecX)
     vecX_com = vecX[missvec]
     Nmiss = sum(missvec)
 
-    I_D = diagm(ones(hp.D))
+    I_D = spdiagm(0 => ones(hp.D))
     G = zeros(Complex{Float64}, hp.K, hp.T)
     map(t -> G[:, t] = dp.W * (dp.λ .^ (t - 1)), 1:hp.T)
-    GtId = sparse(kron(transpose(G), I_D))
+    GtId = kron(sparse(transpose(G)), I_D)
     GtId_com = GtId[missvec, :]
     GtId_com2 = GtId_com' * GtId_com
 
@@ -119,15 +121,15 @@ function loglik(X :: Matrix{Union{Missing, Complex{Float64}}},
     Σᵤ, logdetΣᵤ = fact_inv_logdet(Σᵤ⁻¹)
 
     #Σₓ⁻¹_com = I ./ dp.σ² - GtId_com * Σᵤ * GtId_com
+
     Σₓ⁻¹_com = - GtId_com * Σᵤ * GtId_com'
     map(i -> Σₓ⁻¹_com[i, i] += inv(dp.σ²), 1:Nmiss)
+
     # inversion of Σₓ⁻¹ : Woodbury formula
     #Σₓ_com = I * dp.σ² + dp.σ² ^ 2 * GtId_com *
     #                     inv(Hermitian(Σᵤ⁻¹ - dp.σ² * GtId_com2)) *
     #                     GtId_com'
     Σ₁_com, logdetΣ₁_com = fact_inv_logdet(Σᵤ⁻¹ - dp.σ² * GtId_com2)
-
-
     Σₓ_com = dp.σ² ^ 2 * GtId_com * Σ₁_com * GtId_com'
     map(i -> Σₓ_com[i, i] += dp.σ², 1:Nmiss)
 
@@ -199,7 +201,7 @@ function metropolis_σ²!(X :: Matrix{Union{Missing, Complex{Float64}}},
 end
 
 function init_dmdparams(hp :: BDMDHyperParams)
-    λ = ones(Complex{Float64}, hp.K)
+    λ = ones(Complex{Float64}, hp.K) ./ 0.5
     W = zeros(Complex{Float64}, (hp.K, hp.K))
     σ² = 1.0
     return BDMDParams(λ, W, σ²)
@@ -224,4 +226,82 @@ function run_sampling(X :: Matrix{Union{Missing, Complex{Float64}}},
     end
 
     return dp_ary, logliks
+end
+
+function logik(x :: Complex{Float64}, d :: Int64, t :: Int64,
+                dp :: BDMDParams, hp :: BDMDHyperParams, sp :: SVDParams)
+    gₜ = dp.W * (dp.λ .^ (t - 1))
+    Σ_d = inv(gₜ * gₜ' / dp.σ² + sp.Σbar_U_inv[d, :, :])
+    σ²_dt = real(dp.σ² / (1 + gₜ' * Σ_d * gₜ))
+    Xbar_dt = σ²_dt * transpose(sp.Ubar[d, :]) * sp.Σbar_U_inv[d, :, :] * Σ_d * gₜ
+    return loglikelihood(ComplexNormal(Xbar_dt, √σ²_dt), x)
+end
+
+function reconstruct(d :: Int64, t :: Int64,
+                     realmin :: Float64, realmax :: Float64,
+                     imagmin :: Float64, imagmax :: Float64,
+                     dp_ary :: Vector{BDMDParams},
+                     hp :: BDMDHyperParams, sp :: SVDParams,
+                     burnin :: Int64; nbin :: Int64 = 100)
+    N = length(dp_ary) - burnin
+    xs_re = collect(range(realmin, realmax, length = nbin))
+    xs_im = collect(range(imagmin, imagmax, length = nbin))
+    preds = Matrix{Float64}(undef, (nbin, nbin))
+    for (i, x_re) in enumerate(xs_re)
+        for (j, x_im) in enumerate(xs_im)
+            for n in (burnin + 1):length(dp_ary)
+                x = x_re + im * x_im
+                preds[i, j] = exp(loglik(x, d, t, dp_ary[n], hp, sp))
+            end
+            preds[i, j] /= N
+        end
+    end
+    return preds
+end
+
+function map_bdmd(dp_ary :: Vector{BDMDParams}, hp :: BDMDHyperParams,
+                  burnin :: Int64)
+    N = length(dp_ary)
+    λ = Vector{Complex{Float64}}(undef, hp.K)
+    W = Matrix{Complex{Float64}}(undef, hp.K, hp.K)
+    for k in 1:hp.K
+        λ_ary = [dp_ary[i].λ[k] for i in (burnin + 1):N]
+        ker_λ = kde((real.(λ_ary), imag.(λ_ary)))
+        maxind_λ = findmax(ker_λ.density)[2]
+        λ[k] = ker_λ.x[maxind_λ[1]] + im * ker_λ.y[maxind_λ[2]]
+        for l in 1:hp.K
+            w_ary = [dp_ary[i].W[k, l] for i in (burnin + 1):N]
+            ker_w = kde((real.(w_ary), imag.(w_ary)))
+            maxind_w = findmax(ker_w.density)[2]
+            W[k, l] = ker_w.x[maxind_w[1]] + im * ker_w.y[maxind_w[2]]
+        end
+    end
+    σ²_ary = [dp_ary[i].σ² for i in (burnin + 1):N]
+    ker_σ² = kde(σ²_ary)
+    σ² = ker_σ².x[findmax(ker_σ².density)[2]]
+    return BDMDParams(λ, W, σ²)
+end
+
+function reconstruct_map(dp :: BDMDParams, hp :: BDMDHyperParams)
+    I_D = spdiagm(0 => ones(hp.D))
+    G = zeros(Complex{Float64}, hp.K, hp.T)
+    map(t -> G[:, t] = dp.W * (dp.λ .^ (t - 1)), 1:hp.T)
+    GtId = kron(sparse(transpose(G)), I_D)
+    GtId2 = GtId' * GtId
+
+    Γᵤ⁻¹ = sparse(hp.Γbar_U_inv)
+
+    Σᵤ⁻¹ = GtId2 / dp.σ² + Γᵤ⁻¹
+    Σᵤ, logdetΣᵤ = fact_inv_logdet(Σᵤ⁻¹)
+    Σₓ⁻¹ = - GtId * Σᵤ * GtId'
+    map(i -> Σₓ⁻¹[i, i] += inv(dp.σ²), 1:(hp.D * hp.T))
+
+    # inversion of Σₓ⁻¹ : Woodbury formula
+    Σ₁, logdetΣ₁ = fact_inv_logdet(Σᵤ⁻¹ - dp.σ² * GtId2)
+    Σₓ = dp.σ² ^ 2 * GtId * Σ₁ * GtId'
+    map(i -> Σₓ[i, i] += dp.σ², 1:(hp.D * hp.T))
+
+    vecXbar = Σₓ * GtId * Σᵤ * Γᵤ⁻¹ * hp.vecUbar
+
+    return Matrix(reshape(vecXbar, hp.D, hp.T))
 end

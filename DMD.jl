@@ -4,14 +4,16 @@ using LinearAlgebra
 mutable struct DMDParams
     # λ <n_modes>: eigenvalues of Koopman Operator
     # W <n_data × n_modes>: Koopman modes
-    # σ² : noise variance
+    # Φ <n_modes × n_modes>: eigenvectors of subspace dynamics
+    # b <n_modes × 1>: amplitudes
 
     n_data :: Int64
     n_datadims :: Int64
     n_modes :: Int64
     λ :: Vector{Complex{Float64}}
     W :: Matrix{Complex{Float64}}
-    amplitudes :: Vector{Complex{Float64}}
+    Φ :: Matrix{Complex{Float64}}
+    b :: Vector{Complex{Float64}}
 end
 
 function solve_dmd(X :: AbstractMatrix, n_modes :: Int64)
@@ -31,8 +33,8 @@ function solve_dmd(X :: AbstractMatrix, n_modes :: Int64)
 
     dmdmode = X₁ * Vₖ * Σₖ ^ (-1) * Φ
 
-    α_ary = dmdmode \ X₀[:, 1]
-    return DMDParams(n_data, n_datadims, n_modes, λ, dmdmode, α_ary)
+    b_ary = dmdmode \ X₀[:, 1]
+    return DMDParams(n_data, n_datadims, n_modes, λ, dmdmode, Φ, b_ary)
 end
 
 function reconstruct(original_time :: Vector{Float64},
