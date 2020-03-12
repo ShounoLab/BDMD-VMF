@@ -201,7 +201,7 @@ function metropolis_σ²!(X :: Matrix{Union{Missing, Complex{Float64}}},
 end
 
 function init_dmdparams(hp :: BDMDHyperParams)
-    λ = ones(Complex{Float64}, hp.K) ./ 0.5
+    λ = ones(Complex{Float64}, hp.K) .* 0.5
     W = zeros(Complex{Float64}, (hp.K, hp.K))
     σ² = 1.0
     return BDMDParams(λ, W, σ²)
