@@ -5,6 +5,9 @@
 !*/
 
 # allow
+!/data/Data/*walking*
+!/data/Data/*bicycling*
+
 !*.txt
 !*.md
 !*.jld2

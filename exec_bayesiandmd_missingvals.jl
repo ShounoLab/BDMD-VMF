@@ -9,8 +9,8 @@ include("bayesiandmd_missingvals.jl")
 
 Random.seed!(1234)
 
-D = 128
-T = 256
+D = 24
+T = 64
 K = 2
 
 ### load data ###
@@ -68,6 +68,13 @@ X_res = reconstruct_map(dp_map, hp)
 include("DMD.jl")
 naive_dp = solve_dmd(X, K)
 
+
+outdir = "output"
+
+if !isdir(outdir)
+    mkdir(outdir)
+end
+
 λs = Array{ComplexF64, 2}(undef, K, n_iter)
 Ws = Array{ComplexF64, 3}(undef, K, K, n_iter)
 for k in 1:K
@@ -76,15 +83,22 @@ for k in 1:K
         map(i -> Ws[k, l, i] = dp_ary[i].W[k, l], 1:n_iter)
     end
 end
-p1 = plot(real.(transpose(λs)), title = "traceplot of eigvals (real)")
-hline!(real.([naive_dp.λ[1], naive_dp.λ[2]]), lw = 2)
+p1 = plot(real.(transpose(λs)), title = "traceplot of eigvals (real)", label = ["lambda1, lambda2"])
+#hline!(real.([naive_dp.λ[1], naive_dp.λ[2]]), lw = 2)
+hline!(real.([naive_dp.λ[1]]), lw = 2)
+hline!(real.([naive_dp.λ[2]]), lw = 2)
 p2 = plot(imag.(transpose(λs)), title = "traceplot of eigvals (imag)")
-hline!(imag.([naive_dp.λ[1], naive_dp.λ[2]]), lw = 2)
-plot(p1, p2)
+#hline!(imag.([naive_dp.λ[1], naive_dp.λ[2]]), lw = 2)
+hline!(imag.([naive_dp.λ[1]]), lw = 2)
+hline!(imag.([naive_dp.λ[2]]), lw = 2)
+p = plot(p1, p2, dpi = 300)
+savefig(p, "$outdir/oscillator_eigvals.png")
 
-outdir = "output"
 
-if !isdir(outdir)
-    mkdir(outdir)
-end
-
+p1 = heatmap(t_ary, d_ary, real.(X), title = "original (real)")
+p2 = heatmap(t_ary, d_ary, imag.(X), title = "original (imag)")
+#p2 = heatmap(tmag_ary, d_ary, real.(X_missing))
+p3 = heatmap(t_ary, d_ary, real.(X_missing), title = "corrupted (real)")
+p4 = heatmap(t_ary, d_ary, imag.(X_missing), title = "corrupted (imag)")
+p = plot(p1, p2, p3, p4, dpi = 300)
+savefig(p, "$outdir/oscillator_data.png")
