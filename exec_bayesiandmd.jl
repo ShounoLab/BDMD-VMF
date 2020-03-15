@@ -52,4 +52,4 @@ p = plot(p1, p2)
 
 ### Bayesian DMD ###
 hp = DMDHyperParams(sp.Ubar, sp.Σbar_U, 1e5, 1e5, 0.01, 0.01, D, T, K)
-dp_ary, logliks = run_sampling(X, hp, 100)
+dp_ary, logliks = run_sampling(X, hp, 5000)

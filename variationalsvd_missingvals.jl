@@ -12,12 +12,12 @@ mutable struct SVDParams
     Σbar_V :: Array{Complex{Float64}, 3}
     Σbar_U_inv :: Array{Complex{Float64}, 3}
     Σbar_V_inv :: Array{Complex{Float64}, 3}
+    C_U :: Matrix{Float64}
     C_V :: Matrix{Float64}
     s² :: Float64
 end
 
 struct SVDHyperParams
-    C_U :: Matrix{Float64}
     D :: Int64
     T :: Int64
     K :: Int64
@@ -25,35 +25,35 @@ end
 
 function SVDParams(Ubar :: Matrix{Complex{Float64}}, Vbar :: Matrix{Complex{Float64}},
                    Σbar_U :: Array{Complex{Float64}, 3}, Σbar_V :: Array{Complex{Float64}, 3},
-                   C_V :: Matrix{Complex{Float64}}, s² :: Float64)
+                   C_U :: Matrix{Float64}, C_V :: Matrix{Float64}, s² :: Float64)
     # outer constructor
 
-    D = size(Ubar)[1]
+    D, K = size(Ubar)
     T = size(Vbar)[1]
     Σbar_U_inv = Array{Complex{Float64}, 3}(undef, (D, K, K))
     Σbar_V_inv = Array{Complex{Float64}, 3}(undef, (T, K, K))
 
-    println(K)
+    map(d -> Σbar_U_inv[d, :, :] = inv(Σbar_U[d, :, :]), 1:D)
+    map(t -> Σbar_V_inv[t, :, :] = inv(Σbar_V[t, :, :]), 1:T)
 
-    map(d -> Σbar_U_inv[d, :, :] .= inv(Σbar_U[d, :, :]), 1:D)
-    map(t -> Σbar_V_inv[t, :, :] .= inv(Σbar_V[t, :, :]), 1:T)
-
-    return SVDParams(Ubar, Vbar, Σbar_U, Σbar_V, Σbar_U_inv, Σbar_V_inv, C_V, s²)
+    return SVDParams(Ubar, Vbar, Σbar_U, Σbar_V, Σbar_U_inv, Σbar_V_inv, C_U, C_V, s²)
 end
 
-function init_svdparams(X :: Matrix{Union{Missing, Complex{Float64}}}, D :: Int64, T :: Int64, K :: Int64)
+function init_svdparams(X :: Matrix{Union{Missing, Complex{Float64}}}, D :: Int64, T :: Int64, K :: Int64,
+                        σ²_U :: Float64, σ²_V :: Float64)
     Ubar = [rand(ComplexNormal()) for i in 1:D, j in 1:K]
     Vbar = [rand(ComplexNormal()) for i in 1:T, j in 1:K]
 
     Σbar_U = Array{Complex{Float64}, 3}(undef, (D, K, K))
     Σbar_V = Array{Complex{Float64}, 3}(undef, (T, K, K))
 
-    [@views Σbar_U[d, :, :] = diagm(ones(Complex{Float64}, K)) for d in 1:D]
-    [@views Σbar_V[t, :, :] = diagm(ones(Complex{Float64}, K)) for t in 1:T]
+    [@views Σbar_U[d, :, :] .= diagm(ones(Complex{Float64}, K)) for d in 1:D]
+    [@views Σbar_V[t, :, :] .= diagm(ones(Complex{Float64}, K)) for t in 1:T]
 
-    C_V = diagm(ones(Complex{Float64}, K))
+    C_U = diagm(fill(σ²_U, K))
+    C_V = diagm(fill(σ²_V, K))
     s² = 1.0
-    return SVDParams(Ubar, Vbar, Σbar_U, Σbar_V, C_V, s²)
+    return SVDParams(Ubar, Vbar, Σbar_U, Σbar_V, C_U, C_V, s²)
 end
 
 function loglik(X :: Matrix{Union{Missing, Complex{Float64}}},
@@ -92,9 +92,9 @@ function freeenergy(X :: Matrix{Union{Missing, Complex{Float64}}},
     sum_Σbar_U = reshape(sum(sp.Σbar_U, dims = 1), (K, K))
     sum_Σbar_V = reshape(sum(sp.Σbar_V, dims = 1), (K, K))
 
-    fenergy = N * log(π * sp.s²) + D * log(det(hp.C_U)) + T * log(det(sp.C_V)) -
+    fenergy = N * log(π * sp.s²) + D * log(det(sp.C_U)) + T * log(det(sp.C_V)) -
               logdet_Σbar_U - logdet_Σbar_V - (D + T) * K +
-              tr(hp.C_U ^ (-1) * (sum_Σbar_U + sp.Ubar' * sp.Ubar)) +
+              tr(sp.C_U ^ (-1) * (sum_Σbar_U + sp.Ubar' * sp.Ubar)) +
               tr(sp.C_V ^ (-1) * (sum_Σbar_V + sp.Vbar' * sp.Vbar)) +
               sum_in_f / sp.s²
 
@@ -136,8 +136,8 @@ function update_Σbar_U!(X :: Matrix{Union{Missing, Complex{Float64}}},
                 @views sum_vv += conj(sp.Vbar[t, :]) * transpose(sp.Vbar[t, :]) + sp.Σbar_V[t, :, :]
             end
         end
-        sp.Σbar_U_inv[d, :, :] = inv(hp.C_U) + sum_vv ./ sp.s²
-        sp.Σbar_U[d, :, :] = inv(sp.Σbar_U_inv[d, :, :])
+        @views sp.Σbar_U_inv[d, :, :] = inv(sp.C_U) + sum_vv ./ sp.s²
+        @views sp.Σbar_U[d, :, :] = inv(sp.Σbar_U_inv[d, :, :])
     end
 end
 
@@ -150,8 +150,15 @@ function update_Σbar_V!(X :: Matrix{Union{Missing, Complex{Float64}}},
                 @views sum_uu += conj(sp.Ubar[d, :]) * transpose(sp.Ubar[d, :]) + sp.Σbar_U[d, :, :]
             end
         end
-        sp.Σbar_V_inv[t, :, :] = inv(sp.C_V) + sum_uu ./ sp.s²
-        sp.Σbar_V[t, :, :] = inv(sp.Σbar_V_inv[t, :, :])
+        @views sp.Σbar_V_inv[t, :, :] = inv(sp.C_V) + sum_uu ./ sp.s²
+        @views sp.Σbar_V[t, :, :] = inv(sp.Σbar_V_inv[t, :, :])
+    end
+end
+
+function update_C_U!(sp :: SVDParams, hp :: SVDHyperParams)
+    for k in 1:hp.K
+        @views sp.C_U[k, k] = real(norm(sp.Ubar[:, k]) ^ 2 +
+                                   sum(sp.Σbar_U[:, k, k])) / hp.D
     end
 end
 
@@ -185,8 +192,8 @@ function bayesiansvd(X :: Matrix{Union{Complex{Float64}, Missing}}, K :: Int64, 
     # n_iter: the number of iterations of variational inference (integer)
 
     D, T = size(X)
-    sp = init_svdparams(X, D, T, K)
-    hp = SVDHyperParams(diagm(fill(σ²_U, K)), D, T, K)
+    sp = init_svdparams(X, D, T, K, σ²_U, σ²_V)
+    hp = SVDHyperParams(D, T, K)
 
     logliks = Vector{Float64}(undef, n_iter + 1)
     logliks[1] = loglik(X, sp, hp)
@@ -207,6 +214,7 @@ function bayesiansvd(X :: Matrix{Union{Complex{Float64}, Missing}}, K :: Int64, 
             update_Vbar!(X, sp, hp)
         end
         if learn_C_V
+            update_C_U!(sp, hp)
             update_C_V!(sp, hp)
         end
         update_s²!(X, sp, hp)

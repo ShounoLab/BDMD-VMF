@@ -2,7 +2,6 @@ using Distributions
 using ProgressMeter
 using SparseArrays
 using KernelDensity
-
 mutable struct BDMDParams
     λ :: Vector{Complex{Float64}}
     W :: Matrix{Complex{Float64}}
@@ -122,15 +121,13 @@ function loglik(X :: Matrix{Union{Missing, Complex{Float64}}},
 
     #Σₓ⁻¹_com = I ./ dp.σ² - GtId_com * Σᵤ * GtId_com
 
-    Σₓ⁻¹_com = - GtId_com * Σᵤ * GtId_com'
+    Σₓ⁻¹_com = - GtId_com * Σᵤ * GtId_com' / (dp.σ² ^ 2)
     map(i -> Σₓ⁻¹_com[i, i] += inv(dp.σ²), 1:Nmiss)
 
     # inversion of Σₓ⁻¹ : Woodbury formula
-    #Σₓ_com = I * dp.σ² + dp.σ² ^ 2 * GtId_com *
-    #                     inv(Hermitian(Σᵤ⁻¹ - dp.σ² * GtId_com2)) *
-    #                     GtId_com'
-    Σ₁_com, logdetΣ₁_com = fact_inv_logdet(Σᵤ⁻¹ - dp.σ² * GtId_com2)
-    Σₓ_com = dp.σ² ^ 2 * GtId_com * Σ₁_com * GtId_com'
+    # Σₓ_com = I * dp.σ² + GtId_com * inv(Σᵤ⁻¹ - GtId_com2 / dp.σ²) * GtId_com'
+    Σ₁_com, logdetΣ₁_com = fact_inv_logdet(Σᵤ⁻¹ - GtId_com2 / dp.σ²)
+    Σₓ_com = GtId_com * Σ₁_com * GtId_com'
     map(i -> Σₓ_com[i, i] += dp.σ², 1:Nmiss)
 
     vecXbar_com = Σₓ_com * GtId_com * Σᵤ * Γᵤ⁻¹ * hp.vecUbar
@@ -180,7 +177,7 @@ end
 
 function metropolis_W!(X :: Matrix{Union{Missing, Complex{Float64}}},
                        dp :: BDMDParams, hp :: BDMDHyperParams)
-    σₚᵣₒₚ = 0.1
+    σₚᵣₒₚ = 1e-1
     @views for k in 1:hp.K
         for l in 1:hp.K
             dp_cand = deepcopy(dp)

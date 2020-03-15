@@ -34,34 +34,43 @@ p2 = heatmap(t_ary, d_ary, real.(X_missing))
 plot(p1, p2)
 
 ### variational SVD ###
-sp, vhp, freeenergies, logliks_svd = bayesiansvd(X_missing, K, 100,
-                                                 σ²_U = 1 / D, learn_C_V = true)
+sp, vhp, freeenergies, logliks_svd = bayesiansvd(X_missing, K, 200,
+                                                 σ²_U = 1e10, σ²_V = 1.0, learn_C_V = false)
+sp, vhp, freeenergies, logliks_svd = bayesiansvd(X, K, 200,
+                                                 σ²_U = 1e10, σ²_V = 1.0, learn_C_V = false)
 
 p1 = plot(logliks_svd, lw = 2, title = "log likelihood", legend = :none)
 p2 = plot(freeenergies, lw = 2, title = "free energy", legend = :none)
 p = plot(p1, p2)
 
+U, L, V = svd(X)
+UK, LK, VK = U[:, 1:K], diagm(L[1:K]), V[:, 1:K]
+
 X1 = real.(X)
 X2 = real.(X_missing)
-X3 = real.(sp.Ubar * sp.Vbar')
+X3 = real.(UK * LK * VK')
+X4 = real.(sp.Ubar * sp.Vbar')
 cmin, cmax = findmin(hcat(X1, X3))[1], findmax(hcat(X1, X3))[1]
 p1 = heatmap(1:T, 1:D, X1, clims = (cmin, cmax),
              title = "original", xlabel = "t", ylabel = "x")
 p2 = heatmap(1:T, 1:D, X2, clims = (cmin, cmax),
              title = "missing", xlabel = "t", ylabel = "x")
 p3 = heatmap(1:T, 1:D, X3, clims = (cmin, cmax),
+             title = "SVD",
+             xlabel = "t", ylabel = "x")
+p4 = heatmap(1:T, 1:D, X4, clims = (cmin, cmax),
              title = "variational SVD",
              xlabel = "t", ylabel = "x")
-p = plot(p1, p2, p3)
+p = plot(p1, p2, p3, p4)
 
 
 ### Bayesian DMD ###
-n_iter = 10000
+n_iter = 5000
 hp = BDMDHyperParams(sp, vhp)
-dp_ary, logliks = run_sampling(X, hp, n_iter)
+dp_ary, logliks = run_sampling(X_missing, hp, n_iter)
 @save "$outdir/mcmc_oscillator_missing.jld2" X X_missing dp_ary hp
 
-dp_map = map_bdmd(dp_ary, hp, 5000)
+dp_map = map_bdmd(dp_ary, hp, 4000)
 X_res = reconstruct_map(dp_map, hp)
 
 # naive DMD
@@ -83,22 +92,32 @@ for k in 1:K
         map(i -> Ws[k, l, i] = dp_ary[i].W[k, l], 1:n_iter)
     end
 end
-p1 = plot(real.(transpose(λs)), title = "traceplot of eigvals (real)", label = ["lambda1, lambda2"])
-#hline!(real.([naive_dp.λ[1], naive_dp.λ[2]]), lw = 2)
-hline!(real.([naive_dp.λ[1]]), lw = 2)
-hline!(real.([naive_dp.λ[2]]), lw = 2)
+p1 = plot(real.(transpose(λs)), title = "traceplot of eigvals (real)")
+for k in 1:K
+    hline!(real.([naive_dp.λ[k]]), lw = 2, label = "l$k")
+end
 p2 = plot(imag.(transpose(λs)), title = "traceplot of eigvals (imag)")
-#hline!(imag.([naive_dp.λ[1], naive_dp.λ[2]]), lw = 2)
-hline!(imag.([naive_dp.λ[1]]), lw = 2)
-hline!(imag.([naive_dp.λ[2]]), lw = 2)
+for k in 1:K
+    hline!(imag.([naive_dp.λ[k]]), lw = 2, label = "l$k")
+end
 p = plot(p1, p2, dpi = 300)
 savefig(p, "$outdir/oscillator_eigvals.png")
 
 
-p1 = heatmap(t_ary, d_ary, real.(X), title = "original (real)")
-p2 = heatmap(t_ary, d_ary, imag.(X), title = "original (imag)")
-#p2 = heatmap(tmag_ary, d_ary, real.(X_missing))
-p3 = heatmap(t_ary, d_ary, real.(X_missing), title = "corrupted (real)")
-p4 = heatmap(t_ary, d_ary, imag.(X_missing), title = "corrupted (imag)")
-p = plot(p1, p2, p3, p4, dpi = 300)
-savefig(p, "$outdir/oscillator_data.png")
+W_naive = naive_dp.Φ .* naive_dp.b
+Ws = reshape(Ws, (2 * K, n_iter))
+
+p1 = plot(real.(transpose(Ws)), title = "traceplot of modes (real)")
+for k in 1:K
+    for l in 1:K
+        hline!(real.([W_naive[k, l]]), lw = 2, label = "W$(k * (k - 1) + l)")
+    end
+end
+p2 = plot(imag.(transpose(Ws)), title = "traceplot of modes (imag)")
+for k in 1:K
+    for l in 1:K
+        hline!(imag.([W_naive[k, l]]), lw = 2, label = "W$(k * (k - 1) + l)")
+    end
+end
+p = plot(p1, p2, dpi = 300)
+savefig(p, "$outdir/oscillator_eigvals.png")
