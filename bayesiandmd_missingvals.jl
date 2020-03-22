@@ -290,12 +290,12 @@ function reconstruct_map(dp :: BDMDParams, hp :: BDMDHyperParams)
 
     Σᵤ⁻¹ = GtId2 / dp.σ² + Γᵤ⁻¹
     Σᵤ, logdetΣᵤ = fact_inv_logdet(Σᵤ⁻¹)
-    Σₓ⁻¹ = - GtId * Σᵤ * GtId'
+    Σₓ⁻¹ = - GtId * Σᵤ * GtId' / (dp.σ² ^ 2)
     map(i -> Σₓ⁻¹[i, i] += inv(dp.σ²), 1:(hp.D * hp.T))
 
     # inversion of Σₓ⁻¹ : Woodbury formula
-    Σ₁, logdetΣ₁ = fact_inv_logdet(Σᵤ⁻¹ - dp.σ² * GtId2)
-    Σₓ = dp.σ² ^ 2 * GtId * Σ₁ * GtId'
+    Σ₁, logdetΣ₁ = fact_inv_logdet(Σᵤ⁻¹ - GtId2 / dp.σ²)
+    Σₓ = GtId * Σ₁ * GtId'
     map(i -> Σₓ[i, i] += dp.σ², 1:(hp.D * hp.T))
 
     vecXbar = Σₓ * GtId * Σᵤ * Γᵤ⁻¹ * hp.vecUbar
