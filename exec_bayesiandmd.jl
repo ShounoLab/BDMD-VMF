@@ -3,14 +3,15 @@ using StatsBase
 include("variationalsvd.jl")
 include("bayesiandmd.jl")
 
-D = 32
-T = 64
+D = 10
+T = 30
 K = 2
 
 
 ### load data ###
 include("Utils/toydata.jl")
-gen_oscillator("toydata_oscillator.csv", D, T, 5e-2, seed = 123)
+#gen_oscillator("toydata_oscillator.csv", D, T, 5e-2, seed = 123)
+gen_oscillator("toydata_oscillator.csv", D, T, 1e-2, seed = 123)
 X = CSV.read("data/toydata_oscillator.csv")
 X = Matrix(transpose(Matrix(parse.(Complex{Float64}, X))))
 

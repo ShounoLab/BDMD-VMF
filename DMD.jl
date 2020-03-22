@@ -16,7 +16,8 @@ mutable struct DMDParams
     b :: Vector{Complex{Float64}}
 end
 
-function solve_dmd(X :: AbstractMatrix, n_modes :: Int64)
+function solve_dmd(X :: AbstractMatrix, n_modes :: Int64;
+                   exact :: Bool = false)
     X₀ = X[:, 1:(end - 1)]
     X₁ = X[:, 2:end]
 
@@ -31,7 +32,11 @@ function solve_dmd(X :: AbstractMatrix, n_modes :: Int64)
     Atilde = Uₖ' * X₁ * Vₖ * Σₖ ^ (-1)
     λ, Φ = eigen(Atilde)
 
-    dmdmode = X₁ * Vₖ * Σₖ ^ (-1) * Φ
+    if exact
+        dmdmode = X₁ * Vₖ * Σₖ ^ (-1) * Φ
+    else
+        dmdmode = Uₖ * Φ
+    end
 
     b_ary = dmdmode \ X₀[:, 1]
     return DMDParams(n_data, n_datadims, n_modes, λ, dmdmode, Φ, b_ary)

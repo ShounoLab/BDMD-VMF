@@ -2,6 +2,8 @@ using Distributions
 using ProgressMeter
 using SparseArrays
 using KernelDensity
+using PDMats
+
 mutable struct BDMDParams
     λ :: Vector{Complex{Float64}}
     W :: Matrix{Complex{Float64}}
@@ -130,7 +132,7 @@ function loglik(X :: Matrix{Union{Missing, Complex{Float64}}},
     Σₓ_com = GtId_com * Σ₁_com * GtId_com'
     map(i -> Σₓ_com[i, i] += dp.σ², 1:Nmiss)
 
-    vecXbar_com = Σₓ_com * GtId_com * Σᵤ * Γᵤ⁻¹ * hp.vecUbar
+    vecXbar_com = Σₓ_com * GtId_com * Σᵤ * Γᵤ⁻¹ * hp.vecUbar / dp.σ²
 
     # determinant lemma
     logdetΣₓ_com = Nmiss * log(dp.σ²) - logdetΣᵤ + logdetΣ₁_com
@@ -212,6 +214,9 @@ function run_sampling(X :: Matrix{Union{Missing, Complex{Float64}}},
     logliks = Vector{Float64}(undef, n_iter)
 
     progress = Progress(n_iter)
+
+    dp.W = deepcopy(Matrix(transpose(transpose(naive_dp.Φ) .* naive_dp.b)))
+    dp.λ = deepcopy(naive_dp.λ)
     for i in 1:n_iter
         metropolis_W!(X, dp, hp)
         metropolis_λ!(X, dp, hp)
@@ -225,35 +230,69 @@ function run_sampling(X :: Matrix{Union{Missing, Complex{Float64}}},
     return dp_ary, logliks
 end
 
-function logik(x :: Complex{Float64}, d :: Int64, t :: Int64,
-                dp :: BDMDParams, hp :: BDMDHyperParams, sp :: SVDParams)
-    gₜ = dp.W * (dp.λ .^ (t - 1))
-    Σ_d = inv(gₜ * gₜ' / dp.σ² + sp.Σbar_U_inv[d, :, :])
-    σ²_dt = real(dp.σ² / (1 + gₜ' * Σ_d * gₜ))
-    Xbar_dt = σ²_dt * transpose(sp.Ubar[d, :]) * sp.Σbar_U_inv[d, :, :] * Σ_d * gₜ
-    return loglikelihood(ComplexNormal(Xbar_dt, √σ²_dt), x)
-end
+#function reconstruct(dp_ary :: Vector{BDMDParams},
+#                     hp :: BDMDHyperParams, sp :: SVDParams,
+#                     N :: Int64, burnin :: Int64)
+#    X_preds = Array{ComplexF64, 3}(undef, (hp.D, hp.T, N))
+#    progress = Progress(N)
+#    for n in 1:N
+#        vecUbar = rand(MvComplexNormal(hp.vecUbar, hp.Γbar_U, check_posdef = false, check_hermitian = false))
+#        Ubar = reshape(vecUbar, (hp.D, hp.K))
+#
+#        ind = rand((burnin + 1):length(dp_ary))
+#        λ, W, σ² = dp_ary[ind].λ, dp_ary[ind].W, dp_ary[ind].σ²
+#
+#        I_D = spdiagm(0 => ones(hp.D))
+#        G = zeros(Complex{Float64}, hp.K, hp.T)
+#        map(t -> G[:, t] = W * (λ .^ (t - 1)), 1:hp.T)
+#
+#        X_preds[:, :, n] .= reshape(rand(MvComplexNormal(vec(Ubar * G),
+#                                                         spdiagm(0 => fill(σ², hp.D * hp.T)),
+#                                                         check_posdef = false,
+#                                                         check_hermitian = false)),
+#                                    (hp.D, hp.T))
+#        next!(progress)
+#    end
+#    return X_preds
+#end
 
-function reconstruct(d :: Int64, t :: Int64,
-                     realmin :: Float64, realmax :: Float64,
-                     imagmin :: Float64, imagmax :: Float64,
-                     dp_ary :: Vector{BDMDParams},
+
+function reconstruct(dp_ary :: Vector{BDMDParams},
                      hp :: BDMDHyperParams, sp :: SVDParams,
-                     burnin :: Int64; nbin :: Int64 = 100)
-    N = length(dp_ary) - burnin
-    xs_re = collect(range(realmin, realmax, length = nbin))
-    xs_im = collect(range(imagmin, imagmax, length = nbin))
-    preds = Matrix{Float64}(undef, (nbin, nbin))
-    for (i, x_re) in enumerate(xs_re)
-        for (j, x_im) in enumerate(xs_im)
-            for n in (burnin + 1):length(dp_ary)
-                x = x_re + im * x_im
-                preds[i, j] = exp(loglik(x, d, t, dp_ary[n], hp, sp))
-            end
-            preds[i, j] /= N
-        end
+                     N :: Int64, burnin :: Int64)
+    X_preds = Array{ComplexF64, 3}(undef, (hp.D, hp.T, N))
+    progress = Progress(N)
+    for n in 1:N
+        ind = rand((burnin + 1):length(dp_ary))
+        λ, W, σ² = dp_ary[ind].λ, dp_ary[ind].W, dp_ary[ind].σ²
+
+        I_D = spdiagm(0 => ones(hp.D))
+        G = zeros(Complex{Float64}, hp.K, hp.T)
+        map(t -> G[:, t] = W * (λ .^ (t - 1)), 1:hp.T)
+        GtId = kron(sparse(transpose(G)), I_D)
+        GtId2 = GtId' * GtId
+
+        Γᵤ⁻¹ = sparse(hp.Γbar_U_inv)
+
+        Σᵤ⁻¹ = GtId2 / σ² + Γᵤ⁻¹
+        Σᵤ, logdetΣᵤ = fact_inv_logdet(Σᵤ⁻¹)
+        Σₓ⁻¹ = - GtId * Σᵤ * GtId' / (σ² ^ 2)
+        map(i -> Σₓ⁻¹[i, i] += inv(σ²), 1:(hp.D * hp.T))
+
+        # inversion of Σₓ⁻¹ : Woodbury formula
+        Σ₁, logdetΣ₁ = fact_inv_logdet(Σᵤ⁻¹ - GtId2 / σ²)
+        Σₓ = GtId * Σ₁ * GtId'
+        map(i -> Σₓ[i, i] += σ², 1:(hp.D * hp.T))
+
+        vecXbar = Σₓ * GtId * Σᵤ * Γᵤ⁻¹ * hp.vecUbar / σ²
+
+        heatmap(real.(reshape(vecXbar, (hp.D, hp.T))))
+        X_preds[:, :, n] .= reshape(rand(MvComplexNormal(vecXbar, Σₓ, check_posdef = false,
+                                                   check_hermitian = false)),
+                              (hp.D, hp.T))
+        next!(progress)
     end
-    return preds
+    return X_preds
 end
 
 function map_bdmd(dp_ary :: Vector{BDMDParams}, hp :: BDMDHyperParams,
@@ -298,7 +337,18 @@ function reconstruct_map(dp :: BDMDParams, hp :: BDMDHyperParams)
     Σₓ = GtId * Σ₁ * GtId'
     map(i -> Σₓ[i, i] += dp.σ², 1:(hp.D * hp.T))
 
-    vecXbar = Σₓ * GtId * Σᵤ * Γᵤ⁻¹ * hp.vecUbar
-
+    vecXbar = Σₓ * GtId * Σᵤ * Γᵤ⁻¹ * hp.vecUbar / dp.σ²
     return Matrix(reshape(vecXbar, hp.D, hp.T))
+end
+
+function get_quantiles(X_preds :: Array{ComplexF64}; interval = 0.95)
+    α = (1 - interval) / 2
+    D, T = size(X_preds)[1], size(X_preds)[2]
+    X_quantiles_real = Array{Float64, 3}(undef, (D, T, 2))
+    X_quantiles_imag = Array{Float64, 3}(undef, (D, T, 2))
+    for d in 1:D
+        map(t -> X_quantiles_real[d, t, :] = quantile(real.(X_preds[d, t, :]), [α, 1-α]), 1:T)
+        map(t -> X_quantiles_imag[d, t, :] = quantile(imag.(X_preds[d, t, :]), [α, 1-α]), 1:T)
+    end
+    return X_quantiles_real, X_quantiles_imag
 end

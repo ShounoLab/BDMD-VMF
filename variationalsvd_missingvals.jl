@@ -184,7 +184,7 @@ end
 
 function bayesiansvd(X :: Matrix{Union{Complex{Float64}, Missing}}, K :: Int64, n_iter :: Int64;
                      σ²_U :: Float64 = 1e5, σ²_V :: Float64 = 1e5,
-                     learn_C_V :: Bool = true)
+                     learn_C_V :: Bool = true, showprogress :: Bool = false)
     # Bayesian SVD with missing values
     # --- arguments ---
     # X: data matrix (D×T Complex Matrix)
@@ -204,7 +204,9 @@ function bayesiansvd(X :: Matrix{Union{Complex{Float64}, Missing}}, K :: Int64, 
         sp.C_V = diagm(fill(σ²_V, K))
     end
 
-    progress = Progress(n_iter)
+    if showprogress
+        progress = Progress(n_iter)
+    end
     for i in 1:n_iter
         update_Σbar_U!(X, sp, hp)
         update_Σbar_V!(X, sp, hp)
@@ -221,7 +223,9 @@ function bayesiansvd(X :: Matrix{Union{Complex{Float64}, Missing}}, K :: Int64, 
 
         freeenergies[i + 1] = freeenergy(X, sp, hp)
         logliks[i + 1] = loglik(X, sp, hp)
-        next!(progress)
+        if showprogress
+            next!(progress)
+        end
     end
     return sp, hp, freeenergies, logliks
 end

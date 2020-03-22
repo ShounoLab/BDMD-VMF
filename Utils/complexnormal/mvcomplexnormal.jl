@@ -1,5 +1,6 @@
 using Distributions
 using LinearAlgebra
+using SparseArrays
 using Base: rand
 include("./AbstractComplexDist.jl")
 
@@ -65,7 +66,11 @@ function Base.rand(mvcn :: MvComplexNormal{T, S},
         Γ_multivariate = Symmetric(Γ_multivariate)
     end
 
-    x_multivariate = rand(MvNormal(μ_multivariate, Γ_multivariate), n)
+    if isa(Γ_multivariate, SparseMatrixCSC)
+        x_multivariate = rand(MvNormal(μ_multivariate, PDSparseMat(Γ_multivariate)), n)
+    else
+        x_multivariate = rand(MvNormal(μ_multivariate, Γ_multivariate), n)
+    end
     x_reshaped = reshape(x_multivariate[1:d, :] .+ im * x_multivariate[d+1:end, :], (d, n))
     return x_reshaped
 end
