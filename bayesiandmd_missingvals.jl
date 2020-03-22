@@ -215,8 +215,6 @@ function run_sampling(X :: Matrix{Union{Missing, Complex{Float64}}},
 
     progress = Progress(n_iter)
 
-    dp.W = deepcopy(Matrix(transpose(transpose(naive_dp.Φ) .* naive_dp.b)))
-    dp.λ = deepcopy(naive_dp.λ)
     for i in 1:n_iter
         metropolis_W!(X, dp, hp)
         metropolis_λ!(X, dp, hp)

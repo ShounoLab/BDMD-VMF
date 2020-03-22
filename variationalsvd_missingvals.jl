@@ -136,8 +136,8 @@ function update_Σbar_U!(X :: Matrix{Union{Missing, Complex{Float64}}},
                 @views sum_vv += conj(sp.Vbar[t, :]) * transpose(sp.Vbar[t, :]) + sp.Σbar_V[t, :, :]
             end
         end
-        @views sp.Σbar_U_inv[d, :, :] = inv(sp.C_U) + sum_vv ./ sp.s²
-        @views sp.Σbar_U[d, :, :] = inv(sp.Σbar_U_inv[d, :, :])
+        sp.Σbar_U_inv[d, :, :] = inv(sp.C_U) + sum_vv ./ sp.s²
+        sp.Σbar_U[d, :, :] = inv(sp.Σbar_U_inv[d, :, :])
     end
 end
 
@@ -150,8 +150,8 @@ function update_Σbar_V!(X :: Matrix{Union{Missing, Complex{Float64}}},
                 @views sum_uu += conj(sp.Ubar[d, :]) * transpose(sp.Ubar[d, :]) + sp.Σbar_U[d, :, :]
             end
         end
-        @views sp.Σbar_V_inv[t, :, :] = inv(sp.C_V) + sum_uu ./ sp.s²
-        @views sp.Σbar_V[t, :, :] = inv(sp.Σbar_V_inv[t, :, :])
+        sp.Σbar_V_inv[t, :, :] = inv(sp.C_V) + sum_uu ./ sp.s²
+        sp.Σbar_V[t, :, :] = inv(sp.Σbar_V_inv[t, :, :])
     end
 end
 
