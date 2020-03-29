@@ -26,7 +26,7 @@ struct BDMDHyperParams
 end
 
 function BDMDHyperParams(sp :: SVDParams, shp :: SVDHyperParams;
-                         σ²_λ :: Float64 = 1e5, σ²_w :: Float64 = 1e5,
+                         σ²_λ :: Float64 = 1e5, σ²_w :: Float64 = 1e10,
                          α :: Float64 = 0.01, β :: Float64 = 0.01)
     # outer constructor
     C = commutation_matrix(shp.D, shp.K)
@@ -45,9 +45,30 @@ function BDMDHyperParams(sp :: SVDParams, shp :: SVDHyperParams;
                            shp.D, shp.T, shp.K)
 end
 
+struct MCMCConfig
+    n_iter :: Int64
+    burnin :: Int64
+    σₚᵣₒₚ_λ :: Float64
+    σₚᵣₒₚ_W :: Float64
+    σₚᵣₒₚ_σ² :: Float64
+    σₚᵣₒₚ_λ_burnin :: Float64
+    σₚᵣₒₚ_W_burnin :: Float64
+    σₚᵣₒₚ_σ²_burnin :: Float64
+end
+
+function MCMCConfig(n_iter :: Int64, burnin :: Int64,
+                    σₚᵣₒₚ_λ :: Float64, σₚᵣₒₚ_W :: Float64,
+                    σₚᵣₒₚ_σ² :: Float64)
+    return MCMCConfig(n_iter :: Int64, burnin :: Int64,
+                      σₚᵣₒₚ_λ :: Float64, σₚᵣₒₚ_W :: Float64,
+                      σₚᵣₒₚ_σ² :: Float64, σₚᵣₒₚ_λ :: Float64,
+                      σₚᵣₒₚ_W :: Float64,σₚᵣₒₚ_σ² :: Float64)
+end
+
+
 function commutation_matrix(M :: Int64, N :: Int64)
     # get commutation matrix of vectrized matrix
- 
+
 
     # see Def.2.1 in Magnus and Neudecker (1979) for details
 
@@ -98,8 +119,17 @@ function fact_inv_logdet(A :: SparseMatrixCSC{Complex{Float64}})
     #        return sparse(inv(F)), -log(det(F))
     #    end
     #end
-    F = lu(A)
-    return sparse(inv(F)), -sum(log.(diag(F.U ./ F.Rs)))
+    try
+        F = lu(A)
+        return sparse(inv(F)), -sum(log.(diag(F.U ./ F.Rs)))
+    catch e
+        if isa(e, SingularException)
+            println("LU decomposition meets singular matrix: adding machine epsilon")
+            map(i -> A[i, i] += 1e-5, 1:size(A)[1])
+            F = lu(A)
+            return sparse(inv(F)), -sum(log.(diag(F.U ./ F.Rs)))
+        end
+    end
 end
 
 function loglik(X :: Matrix{Union{Missing, Complex{Float64}}},
@@ -137,7 +167,7 @@ function loglik(X :: Matrix{Union{Missing, Complex{Float64}}},
     # determinant lemma
     logdetΣₓ_com = Nmiss * log(dp.σ²) - logdetΣᵤ + logdetΣ₁_com
 
-    logL = -real(Nmiss * log(π * dp.σ²) + logdetΣₓ_com +
+    logL = -real(Nmiss * log(π) + logdetΣₓ_com +
                 (vecX_com - vecXbar_com)' * Σₓ⁻¹_com * (vecX_com - vecXbar_com))
     return logL
 end
@@ -160,6 +190,9 @@ function metropolis!(X :: Matrix{Union{Missing, Complex{Float64}}},
     logp_cand = loglik(X, dp_cand, hp) + logprior(dp_cand, hp)
 
     logr = logp_cand - logp_orig
+    if sum(norm.(dp_cand.λ) .^ 2 .> 1.0) >= 1
+        return nothing
+    end
     if logr > 0
         dp.λ, dp.W, dp.σ² = dp_cand.λ, dp_cand.W, dp_cand.σ²
     elseif logr > log(rand())
@@ -168,8 +201,9 @@ function metropolis!(X :: Matrix{Union{Missing, Complex{Float64}}},
 end
 
 function metropolis_λ!(X :: Matrix{Union{Missing, Complex{Float64}}},
-                       dp :: BDMDParams, hp :: BDMDHyperParams)
-    σₚᵣₒₚ = 1e-2
+                       dp :: BDMDParams, hp :: BDMDHyperParams,
+                       mc :: MCMCConfig, iter :: Int64)
+    σₚᵣₒₚ = ifelse(iter > mc.burnin, mc.σₚᵣₒₚ_λ, mc.σₚᵣₒₚ_λ_burnin)
     for k in 1:hp.K
         dp_cand = deepcopy(dp)
         dp_cand.λ[k] += rand(ComplexNormal(0.0im, σₚᵣₒₚ))
@@ -178,8 +212,9 @@ function metropolis_λ!(X :: Matrix{Union{Missing, Complex{Float64}}},
 end
 
 function metropolis_W!(X :: Matrix{Union{Missing, Complex{Float64}}},
-                       dp :: BDMDParams, hp :: BDMDHyperParams)
-    σₚᵣₒₚ = 1e-1
+                       dp :: BDMDParams, hp :: BDMDHyperParams,
+                       mc :: MCMCConfig, iter :: Int64)
+    σₚᵣₒₚ = ifelse(iter > mc.burnin, mc.σₚᵣₒₚ_W, mc.σₚᵣₒₚ_W_burnin)
     @views for k in 1:hp.K
         for l in 1:hp.K
             dp_cand = deepcopy(dp)
@@ -190,8 +225,9 @@ function metropolis_W!(X :: Matrix{Union{Missing, Complex{Float64}}},
 end
 
 function metropolis_σ²!(X :: Matrix{Union{Missing, Complex{Float64}}},
-                        dp :: BDMDParams, hp :: BDMDHyperParams)
-    σₚᵣₒₚ = 1e-2
+                        dp :: BDMDParams, hp :: BDMDHyperParams,
+                        mc :: MCMCConfig, iter :: Int64)
+    σₚᵣₒₚ = ifelse(iter > (mc.burnin - 1000), mc.σₚᵣₒₚ_σ², mc.σₚᵣₒₚ_σ²_burnin)
     dp_cand = deepcopy(dp)
     dp_cand.σ² += rand(Normal(0.0, σₚᵣₒₚ))
     if dp_cand.σ² > 0
@@ -207,7 +243,7 @@ function init_dmdparams(hp :: BDMDHyperParams)
 end
 
 function run_sampling(X :: Matrix{Union{Missing, Complex{Float64}}},
-                      hp :: BDMDHyperParams, n_iter :: Int64)
+                      hp :: BDMDHyperParams, mc :: MCMCConfig)
     dp = init_dmdparams(hp)
 
     dp_ary = Vector{BDMDParams}(undef, n_iter)
@@ -216,9 +252,9 @@ function run_sampling(X :: Matrix{Union{Missing, Complex{Float64}}},
     progress = Progress(n_iter)
 
     for i in 1:n_iter
-        metropolis_W!(X, dp, hp)
-        metropolis_λ!(X, dp, hp)
-        metropolis_σ²!(X, dp, hp)
+        metropolis_W!(X, dp, hp, mc, i)
+        metropolis_λ!(X, dp, hp, mc, i)
+        metropolis_σ²!(X, dp, hp, mc, i)
 
         dp_ary[i] = deepcopy(dp)
         logliks[i] = loglik(X, dp, hp)
@@ -315,6 +351,45 @@ function map_bdmd(dp_ary :: Vector{BDMDParams}, hp :: BDMDHyperParams,
     σ² = ker_σ².x[findmax(ker_σ².density)[2]]
     return BDMDParams(λ, W, σ²)
 end
+
+function mean_bdmd(dp_ary :: Vector{BDMDParams}, hp :: BDMDHyperParams,
+                   burnin :: Int64)
+    N = length(dp_ary)
+    λ = Vector{Complex{Float64}}(undef, hp.K)
+    W = Matrix{Complex{Float64}}(undef, hp.K, hp.K)
+    for k in 1:hp.K
+        λ[k] = mean([dp_ary[i].λ[k] for i in (burnin + 1):N])
+        for l in 1:hp.K
+            W[k, l] = mean([dp_ary[i].W[k, l] for i in (burnin + 1):N])
+        end
+    end
+    σ² = mean([dp_ary[i].σ² for i in (burnin + 1):N])
+    return BDMDParams(λ, W, σ²)
+end
+
+function mean_bdmd(dp :: BDMDParams, hp :: BDMDHyperParams)
+    I_D = spdiagm(0 => ones(hp.D))
+    G = zeros(Complex{Float64}, hp.K, hp.T)
+    map(t -> G[:, t] = dp.W * (dp.λ .^ (t - 1)), 1:hp.T)
+    GtId = kron(sparse(transpose(G)), I_D)
+    GtId2 = GtId' * GtId
+
+    Γᵤ⁻¹ = sparse(hp.Γbar_U_inv)
+
+    Σᵤ⁻¹ = GtId2 / dp.σ² + Γᵤ⁻¹
+    Σᵤ, logdetΣᵤ = fact_inv_logdet(Σᵤ⁻¹)
+    Σₓ⁻¹ = - GtId * Σᵤ * GtId' / (dp.σ² ^ 2)
+    map(i -> Σₓ⁻¹[i, i] += inv(dp.σ²), 1:(hp.D * hp.T))
+
+    # inversion of Σₓ⁻¹ : Woodbury formula
+    Σ₁, logdetΣ₁ = fact_inv_logdet(Σᵤ⁻¹ - GtId2 / dp.σ²)
+    Σₓ = GtId * Σ₁ * GtId'
+    map(i -> Σₓ[i, i] += dp.σ², 1:(hp.D * hp.T))
+
+    vecXbar = Σₓ * GtId * Σᵤ * Γᵤ⁻¹ * hp.vecUbar / dp.σ²
+    return Matrix(reshape(vecXbar, hp.D, hp.T))
+end
+
 
 function reconstruct_map(dp :: BDMDParams, hp :: BDMDHyperParams)
     I_D = spdiagm(0 => ones(hp.D))
