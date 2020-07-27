@@ -82,7 +82,7 @@ end
 function Distributions.loglikelihood(mvcn :: MvComplexNormal,
                                      z :: Vector)
     n = length(z)
-    log_const = -real(log(π * det(mvcn.Γ)))
+    log_const = -real(log(π) + logdet(mvcn.Γ))
     log_exp = -real((z - mvcn.μ)' * mvcn.Γ ^ (-1) * (z - mvcn.μ))
     return log_const + log_exp
 end

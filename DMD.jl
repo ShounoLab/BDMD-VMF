@@ -21,8 +21,8 @@ function solve_dmd(X :: AbstractMatrix, n_modes :: Int64;
     X₀ = X[:, 1:(end - 1)]
     X₁ = X[:, 2:end]
 
-    n_data = size(X)[1] - 1
-    n_datadims = size(X)[2]
+    n_data = size(X)[2]
+    n_datadims = size(X)[1]
 
     U, s, V = svd(X₀)
     Uₖ = U[:, 1:n_modes]
@@ -48,9 +48,9 @@ function reconstruct(original_time :: Vector{Float64},
     Δt = original_time[2] - original_time[1]
     Λc = diagm(log.(dp.λ)) / Δt
 
-    reconstructed_mat = Matrix{Complex{Float64}}(undef, (length(t_ary), dp.n_datadims))
+    reconstructed_mat = Matrix{Complex{Float64}}(undef, (dp.n_datadims, length(t_ary)))
     for (i, t) in enumerate(t_ary)
-        reconstructed_mat[i, :] = dp.w * exp(Λc * t) * dp.amplitudes
+        reconstructed_mat[:, i] = dp.W * exp(Λc * t) * dp.b
     end
     return reconstructed_mat
 end

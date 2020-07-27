@@ -1,26 +1,40 @@
 using Plots
 using StatsBase
+using MAT
+using JLD2
 include("variationalsvd.jl")
 include("bayesiandmd.jl")
-
-D = 10
-T = 30
-K = 2
+include("DMD.jl")
 
 
-### load data ###
-include("Utils/toydata.jl")
-#gen_oscillator("toydata_oscillator.csv", D, T, 5e-2, seed = 123)
-gen_oscillator("toydata_oscillator.csv", D, T, 1e-2, seed = 123)
-X = CSV.read("data/toydata_oscillator.csv")
-X = Matrix(transpose(Matrix(parse.(Complex{Float64}, X))))
+outdir = "output"
 
-t_ary = collect(range(0, 4 * pi, length = T))
-d_ary = collect(range(-5, 5, length = D))
-heatmap(t_ary, d_ary, real.(X))
+if !isdir(outdir)
+    mkdir(outdir)
+end
 
 
-### variational SVD ###
+
+### Nonlinear Schrodinger Equation
+vars_nlse = matread("data/NLSE.mat")
+X = vars_nlse["X"][193:320, :]
+t_ary = reshape(vars_nlse["t"], :)
+d_ary = reshape(vars_nlse["xi"], :)[193:320]
+heatmap(t_ary, d_ary, abs.(X))
+D, T = Int(vars_nlse["n"]), Int(vars_nlse["slices"])
+
+#K = 8
+K = 4
+naive_dp = solve_dmd(X, K)
+plot(real.(naive_dp.λ), imag(naive_dp.λ), seriestype = :scatter)
+
+X_reconst_dmd = reconstruct(t_ary, t_ary, naive_dp)
+
+p1, p2, p3 = heatmap(real.(X)), heatmap(real.(X_reconst_dmd)), heatmap(abs.(real.(X) .- real.(X_reconst_dmd)))
+plot(p1, p2, p3)
+
+
+### Bayesian DMD ###
 sp, vhp, freeenergies, logliks_svd = bayesiansvd(X, K, 100, σ²_U = 1 / D, svdinit = true,
                                                  learn_C_V = true)
 
@@ -35,22 +49,46 @@ X1 = real.(X)
 X2 = real.(UK * LK * VK')
 X3 = real.(sp.Ubar * sp.Vbar')
 cmin, cmax = findmin(hcat(X1, X2, X3))[1], findmax(hcat(X1, X2, X3))[1]
-p1 = heatmap(1:T, 1:D, X1, clims = (cmin, cmax),
+p1 = heatmap(X1, clims = (cmin, cmax),
              title = "original", xlabel = "sample", ylabel = "feature")
-p2 = heatmap(1:T, 1:D, X2, clims = (cmin, cmax),
+p2 = heatmap(X2, clims = (cmin, cmax),
              title = "naive SVD", xlabel = "sample", ylabel = "feature")
-p3 = heatmap(1:T, 1:D, X3, clims = (cmin, cmax),
+p3 = heatmap(X3, clims = (cmin, cmax),
              title = "variational SVD",
              xlabel = "sample", ylabel = "feature")
 p = plot(p1, p2, p3)
 
-X1 = real.(VK * LK)
-X2 = real.(sp_ary[end].Vbar)
-p1 = scatter(X1[:, 1], X1[:, 2], title = "naive SVD")
-p2 = scatter(X2[:, 1], X2[:, 2], title = "variational SVD")
-p = plot(p1, p2)
-
 
 ### Bayesian DMD ###
-hp = DMDHyperParams(sp.Ubar, sp.Σbar_U, 1e5, 1e5, 0.01, 0.01, D, T, K)
-dp_ary, logliks = run_sampling(X, hp, 5000)
+mc = MCMCConfig(7500, 3000, 1e-2, 1e-1, 1e-2)
+hp = BDMDHyperParams(sp.Ubar, sp.Σbar_U, 1e5, 1e5, 0.01, 0.01, D, T, K)
+dp_ary, logliks = run_sampling(X, hp, mc)
+
+plot([imag(dp_ary[i].λ[k]) for i in 1:length(dp_ary), k in 1:K])
+plot(logliks)
+λs_bdmd = [dp_ary[end].λ[k] for k in 1:K]
+
+Ws = Array{ComplexF64, 3}(undef, hp.K, hp.K, mc.n_iter)
+for k in 1:hp.K
+    for l in 1:hp.K
+        map(i -> Ws[k, l, i] = dp_ary[i].W[k, l], 1:mc.n_iter)
+    end
+end
+
+plot([real(Ws[4, k, i]) for i in 1:length(dp_ary), k in 1:K])
+
+plot([dp_ary[i].σ² for i in 1:length(dp_ary)])
+
+
+# reconstruction using the final state of MCMC
+X_reconst_bdmd = Matrix{ComplexF64}(undef, size(X))
+λ, W, σ² = dp_ary[end].λ, dp_ary[end].W, dp_ary[end].σ²
+for t in 1:hp.T
+    gₜ = W * (λ .^ t)
+    Gₜ = (gₜ * gₜ' / σ² + hp.Σbar_U ^ (-1)) ^ (-1)
+    σₜ² = real(σ² * (1 - gₜ' * Gₜ * gₜ) ^ (-1))
+    xₜ = σₜ² / σ² * hp.Ubar * hp.Σbar_U ^ (-1) * Gₜ * gₜ
+    X_reconst_bdmd[:, t] .= xₜ
+end
+
+@save "$outdir/mcmc_nlse.jld2" X dp_ary logliks hp mc

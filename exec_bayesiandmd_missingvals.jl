@@ -11,8 +11,8 @@ include("bayesiandmd_missingvals.jl")
 
 Random.seed!(1234)
 
-D = 16
-T = 32
+D = 32
+T = 128
 K = 2
 
 ### load data ###
@@ -25,15 +25,19 @@ X = Matrix(transpose(Matrix{Union{Missing, Complex{Float64}}}(parse.(Complex{Flo
 #sr_mag = 2
 #Tmag = sr_mag * T
 #X_missing = make_missing(X, sr_mag = sr_mag)
-X_missing = make_missing(X, prob = 0.5)
+X_missing = make_missing(X, prob = 0.9)
 
 t_ary = collect(range(0, 4 * pi, length = T))
 #tmag_ary = collect(range(0, 4 * pi, length = Tmag))
 d_ary = collect(range(-5, 5, length = D))
 p1 = heatmap(t_ary, d_ary, real.(X))
 #p2 = heatmap(tmag_ary, d_ary, real.(X_missing))
-p2 = heatmap(t_ary, d_ary, real.(X_missing))
+p2 = heatmap(t_ary, d_ary, real.(X_missing), dpi = 200, colorbar = :none,
+             ticks = :none, axis = false)
 plot(p1, p2)
+plot(p2, xlabel = "", axis = :none)
+savefig(p2, "oscillator_90.png")
+
 
 ### variational SVD ###
 sp, vhp, freeenergies, logliks_svd = bayesiansvd(X_missing, K, 200,

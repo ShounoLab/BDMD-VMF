@@ -188,7 +188,6 @@ function metropolis!(X :: Matrix{Union{Missing, Complex{Float64}}},
                      dp :: BDMDParams, dp_cand :: BDMDParams, hp :: BDMDHyperParams)
     logp_orig = loglik(X, dp, hp) + logprior(dp, hp)
     logp_cand = loglik(X, dp_cand, hp) + logprior(dp_cand, hp)
-
     logr = logp_cand - logp_orig
     if sum(norm.(dp_cand.λ) .^ 2 .> 1.0) >= 1
         return nothing
@@ -246,12 +245,12 @@ function run_sampling(X :: Matrix{Union{Missing, Complex{Float64}}},
                       hp :: BDMDHyperParams, mc :: MCMCConfig)
     dp = init_dmdparams(hp)
 
-    dp_ary = Vector{BDMDParams}(undef, n_iter)
-    logliks = Vector{Float64}(undef, n_iter)
+    dp_ary = Vector{BDMDParams}(undef, mc.n_iter)
+    logliks = Vector{Float64}(undef, mc.n_iter)
 
-    progress = Progress(n_iter)
+    progress = Progress(mc.n_iter)
 
-    for i in 1:n_iter
+    for i in 1:mc.n_iter
         metropolis_W!(X, dp, hp, mc, i)
         metropolis_λ!(X, dp, hp, mc, i)
         metropolis_σ²!(X, dp, hp, mc, i)
