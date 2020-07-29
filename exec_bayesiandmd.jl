@@ -1,10 +1,10 @@
 using Plots
 using StatsBase
-using MAT
 using JLD2
 include("variationalsvd.jl")
 include("bayesiandmd.jl")
 include("DMD.jl")
+include("Utils/NLSESimulations/pseudospectral.jl")
 
 
 outdir = "output"
@@ -16,26 +16,36 @@ end
 
 
 ### Nonlinear Schrodinger Equation
-vars_nlse = matread("data/NLSE.mat")
-X = vars_nlse["X"][193:320, :]
-t_ary = reshape(vars_nlse["t"], :)
-d_ary = reshape(vars_nlse["xi"], :)[193:320]
-heatmap(t_ary, d_ary, abs.(X))
-D, T = Int(vars_nlse["n"]), Int(vars_nlse["slices"])
+Ngrids = 256 # Number of Fourier modes
+L = 30.0 # Space period
+Δt = 2π / 21
+t_end = 2π
+Nsteps = round(Int, t_end / Δt)
+
+config = NLSESettings(Nsteps, Δt, t_end, Ngrids, L)
+
+# initial state of the wave function
+ψ₀ = 2.0 * sech.(config.gridpoints)
+
+#result = SSFM(ψ₀, config)
+result = PseudoSpectral(ψ₀, config)
+X = result.ψ
+
+D, T = size(result.ψ)
+t_ary = collect(0:config.Δt:config.t_end)[1:end - 1]
 
 #K = 8
 K = 4
 naive_dp = solve_dmd(X, K)
-plot(real.(naive_dp.λ), imag(naive_dp.λ), seriestype = :scatter)
 
 X_reconst_dmd = reconstruct(t_ary, t_ary, naive_dp)
 
-p1, p2, p3 = heatmap(real.(X)), heatmap(real.(X_reconst_dmd)), heatmap(abs.(real.(X) .- real.(X_reconst_dmd)))
+p1, p2, p3 = heatmap(abs.(X)), heatmap(abs.(X_reconst_dmd)), heatmap(abs.(X .- X_reconst_dmd))
 plot(p1, p2, p3)
 
 
 ### Bayesian DMD ###
-sp, vhp, freeenergies, logliks_svd = bayesiansvd(X, K, 100, σ²_U = 1 / D, svdinit = true,
+sp, vhp, freeenergies, logliks_svd = bayesiansvd(X, K, 200, σ²_U = 1 / D, svdinit = true,
                                                  learn_C_V = true)
 
 p1 = plot(logliks_svd, lw = 2, title = "log likelihood", legend = :none)
@@ -45,9 +55,9 @@ p = plot(p1, p2)
 U, L, V = svd(X)
 UK, LK, VK = U[:, 1:K], diagm(L[1:K]), V[:, 1:K]
 
-X1 = real.(X)
-X2 = real.(UK * LK * VK')
-X3 = real.(sp.Ubar * sp.Vbar')
+X1 = abs.(X)
+X2 = abs.(UK * LK * VK')
+X3 = abs.(sp.Ubar * sp.Vbar')
 cmin, cmax = findmin(hcat(X1, X2, X3))[1], findmax(hcat(X1, X2, X3))[1]
 p1 = heatmap(X1, clims = (cmin, cmax),
              title = "original", xlabel = "sample", ylabel = "feature")
@@ -81,14 +91,17 @@ plot([dp_ary[i].σ² for i in 1:length(dp_ary)])
 
 
 # reconstruction using the final state of MCMC
-X_reconst_bdmd = Matrix{ComplexF64}(undef, size(X))
-λ, W, σ² = dp_ary[end].λ, dp_ary[end].W, dp_ary[end].σ²
-for t in 1:hp.T
-    gₜ = W * (λ .^ t)
-    Gₜ = (gₜ * gₜ' / σ² + hp.Σbar_U ^ (-1)) ^ (-1)
-    σₜ² = real(σ² * (1 - gₜ' * Gₜ * gₜ) ^ (-1))
-    xₜ = σₜ² / σ² * hp.Ubar * hp.Σbar_U ^ (-1) * Gₜ * gₜ
-    X_reconst_bdmd[:, t] .= xₜ
-end
-
 @save "$outdir/mcmc_nlse.jld2" X dp_ary logliks hp mc
+@load "$outdir/mcmc_nlse.jld2" X dp_ary logliks hp mc
+
+dp_mean = mean_bdmd(dp_ary, hp, mc)
+X_meanreconst_bdmd = reconstruct_pointest(dp_mean, hp)
+
+p1, p2 = heatmap(abs.(X)), heatmap(abs.(X_meanreconst_bdmd))
+p3 = plot(real.(naive_dp.λ), imag(naive_dp.λ), seriestype = :scatter,
+          xlims = (-1, 1), ylims = (-1, 1), legend = false)
+p4 = plot(real.(dp_mean.λ), imag(dp_mean.λ), seriestype = :scatter, xlims = (-1, 1), ylims = (-1, 1),
+         legend = false)
+plot(p1, p2, p3, p4)
+
+

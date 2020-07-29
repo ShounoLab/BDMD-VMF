@@ -149,3 +149,36 @@ function run_sampling(X :: Matrix{Complex{Float64}}, hp :: BDMDHyperParams,
 
     return dp_ary, logliks
 end
+
+
+function mean_bdmd(dp_ary :: Vector{BDMDParams}, hp :: BDMDHyperParams,
+                   mc :: MCMCConfig)
+    N = length(dp_ary)
+    λ = Vector{Complex{Float64}}(undef, hp.K)
+    W = Matrix{Complex{Float64}}(undef, hp.K, hp.K)
+    for k in 1:hp.K
+        λ[k] = mean([dp_ary[i].λ[k] for i in (mc.burnin + 1):N])
+        for l in 1:hp.K
+            W[k, l] = mean([dp_ary[i].W[k, l] for i in (mc.burnin + 1):N])
+        end
+    end
+    σ² = mean([dp_ary[i].σ² for i in (mc.burnin + 1):N])
+    return BDMDParams(λ, W, σ²)
+end
+
+
+function reconstruct_pointest(dp :: BDMDParams, hp :: BDMDHyperParams)
+    X_reconst_bdmd = Matrix{ComplexF64}(undef, size(X))
+    λ, W, σ² = dp_ary[end].λ, dp_ary[end].W, dp_ary[end].σ²
+    for t in 1:hp.T
+        gₜ = dp.W * (dp.λ .^ t)
+        Gₜ = (gₜ * gₜ' / dp.σ² + hp.Σbar_U ^ (-1)) ^ (-1)
+        σₜ² = real(dp.σ² * (1 - gₜ' * Gₜ * gₜ) ^ (-1))
+        xₜ = σₜ² / dp.σ² * hp.Ubar * hp.Σbar_U ^ (-1) * Gₜ * gₜ
+        X_reconst_bdmd[:, t] .= xₜ
+    end
+
+    return X_reconst_bdmd
+end
+
+

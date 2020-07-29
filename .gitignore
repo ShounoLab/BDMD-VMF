@@ -5,6 +5,7 @@
 !*/
 
 # allow
+!/Utils/NLSESimulations
 !/data/Data/*walking*
 !/data/Data/*bicycling*
 
