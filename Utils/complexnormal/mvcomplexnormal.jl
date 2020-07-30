@@ -44,7 +44,7 @@ end
 
 function MvComplexNormal(μ :: AbstractVector{<: Union{Real, Complex}}, σ :: Float64)
     d = length(μ)
-    Γ = spdiagm(0 => fill(σ^2, d))
+    Γ = Diagonal(fill(σ^2, d))
     return MvComplexNormal(μ, Γ)
 end
 
@@ -83,7 +83,18 @@ end
 function Distributions.loglikelihood(mvcn :: MvComplexNormal,
                                      z :: Vector)
     n = length(z)
-    log_const = -real(log(π) + logdet(mvcn.Γ))
-    log_exp = -real((z - mvcn.μ)' * mvcn.Γ ^ (-1) * (z - mvcn.μ))
+    logdetΓ = isa(mvcn.Γ, SparseMatrixCSC) ?
+              logdet(cholesky(mvcn.Γ)) :
+              logdet(mvcn.Γ)
+
+    if isa(mvcn.Γ, SparseMatrixCSC)
+        invL = inv(lu(mvcn.Γ))
+        invΓ = invL' * invL
+    else
+        invΓ = inv(mvcn.Γ)
+    end
+
+    log_const = -real(log(π) + logdetΓ)
+    log_exp = -real((z - mvcn.μ)' * invΓ * (z - mvcn.μ))
     return log_const + log_exp
 end
