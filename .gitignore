@@ -24,11 +24,11 @@
 !*.bbl
 !*.log
 
-!*.svg
-!*.pdf
-!*.png
-!*.jpg
-!*.jpeg
-!*.ai
+#!*.svg
+#!*.pdf
+#!*.png
+#!*.jpg
+#!*.jpeg
+#!*.ai
 
 !.gitignore

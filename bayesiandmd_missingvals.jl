@@ -263,36 +263,12 @@ function run_sampling(X :: Matrix{Union{Missing, Complex{Float64}}},
     return dp_ary, logliks
 end
 
-#function reconstruct(dp_ary :: Vector{BDMDParams},
-#                     hp :: BDMDHyperParams, sp :: SVDParams,
-#                     N :: Int64, burnin :: Int64)
-#    X_preds = Array{ComplexF64, 3}(undef, (hp.D, hp.T, N))
-#    progress = Progress(N)
-#    for n in 1:N
-#        vecUbar = rand(MvComplexNormal(hp.vecUbar, hp.Γbar_U, check_posdef = false, check_hermitian = false))
-#        Ubar = reshape(vecUbar, (hp.D, hp.K))
-#
-#        ind = rand((burnin + 1):length(dp_ary))
-#        λ, W, σ² = dp_ary[ind].λ, dp_ary[ind].W, dp_ary[ind].σ²
-#
-#        I_D = spdiagm(0 => ones(hp.D))
-#        G = zeros(Complex{Float64}, hp.K, hp.T)
-#        map(t -> G[:, t] = W * (λ .^ (t - 1)), 1:hp.T)
-#
-#        X_preds[:, :, n] .= reshape(rand(MvComplexNormal(vec(Ubar * G),
-#                                                         spdiagm(0 => fill(σ², hp.D * hp.T)),
-#                                                         check_posdef = false,
-#                                                         check_hermitian = false)),
-#                                    (hp.D, hp.T))
-#        next!(progress)
-#    end
-#    return X_preds
-#end
 
+function reconstruct_bdmd_missingvals(
+    dp_ary :: Vector{BDMDParams},
+    hp :: BDMDHyperParams, sp :: SVDParams,
+    N :: Int64, burnin :: Int64)
 
-function reconstruct(dp_ary :: Vector{BDMDParams},
-                     hp :: BDMDHyperParams, sp :: SVDParams,
-                     N :: Int64, burnin :: Int64)
     X_preds = Array{ComplexF64, 3}(undef, (hp.D, hp.T, N))
     progress = Progress(N)
     for n in 1:N
@@ -319,7 +295,6 @@ function reconstruct(dp_ary :: Vector{BDMDParams},
 
         vecXbar = Σₓ * GtId * Σᵤ * Γᵤ⁻¹ * hp.vecUbar / σ²
 
-        heatmap(real.(reshape(vecXbar, (hp.D, hp.T))))
         X_preds[:, :, n] .= reshape(rand(MvComplexNormal(vecXbar, Σₓ, check_posdef = false,
                                                    check_hermitian = false)),
                               (hp.D, hp.T))
@@ -348,21 +323,6 @@ function map_bdmd(dp_ary :: Vector{BDMDParams}, hp :: BDMDHyperParams,
     σ²_ary = [dp_ary[i].σ² for i in (burnin + 1):N]
     ker_σ² = kde(σ²_ary)
     σ² = ker_σ².x[findmax(ker_σ².density)[2]]
-    return BDMDParams(λ, W, σ²)
-end
-
-function mean_bdmd(dp_ary :: Vector{BDMDParams}, hp :: BDMDHyperParams,
-                   burnin :: Int64)
-    N = length(dp_ary)
-    λ = Vector{Complex{Float64}}(undef, hp.K)
-    W = Matrix{Complex{Float64}}(undef, hp.K, hp.K)
-    for k in 1:hp.K
-        λ[k] = mean([dp_ary[i].λ[k] for i in (burnin + 1):N])
-        for l in 1:hp.K
-            W[k, l] = mean([dp_ary[i].W[k, l] for i in (burnin + 1):N])
-        end
-    end
-    σ² = mean([dp_ary[i].σ² for i in (burnin + 1):N])
     return BDMDParams(λ, W, σ²)
 end
 

@@ -182,3 +182,28 @@ function reconstruct_pointest(dp :: BDMDParams, hp :: BDMDHyperParams)
 end
 
 
+function reconstruct_bdmd(
+    dp_ary :: Vector{BDMDParams},
+    hp :: BDMDHyperParams, sp :: SVDParams,
+    mc :: MCMCConfig;
+    N :: Int64 = mc.n_iter,
+    T :: Int64 = hp.T)
+
+    X_preds = Array{ComplexF64, 3}(undef, (hp.D, T, N))
+    progress = Progress(N)
+    for n in 1:N
+        ind = rand((mc.burnin + 1):mc.n_iter)
+        λ, W, σ² = dp_ary[ind].λ, dp_ary[ind].W, dp_ary[ind].σ²
+
+        for t in 1:T
+            gₜ = W * (λ .^ t)
+            Gₜ = (gₜ * gₜ' / σ² + hp.Σbar_U ^ (-1)) ^ (-1)
+            σₜ² = real(σ² * (1 - gₜ' * Gₜ * gₜ) ^ (-1))
+            xₜ = σₜ² / σ² * hp.Ubar * hp.Σbar_U ^ (-1) * Gₜ * gₜ
+            X_preds[:, t, n] .= [rand(ComplexNormal(xₜ[d], √σₜ²)) for d in 1:hp.D]
+        end
+
+        next!(progress)
+    end
+    return X_preds
+end

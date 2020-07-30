@@ -1,5 +1,6 @@
 using DataFrames
 using LinearAlgebra
+using Plots
 
 mutable struct DMDParams
     # λ <n_modes>: eigenvalues of Koopman Operator
@@ -54,3 +55,17 @@ function reconstruct(original_time :: Vector{Float64},
     end
     return reconstructed_mat
 end
+
+function visualize_eigvals(λ :: Vector{ComplexF64}; title = "eigvals")
+    circleshape = (sin.(range(0, 2π, length = 500)),  cos.(range(0, 2π, length = 500)))
+    p = plot(real.(λ), imag.(λ), title = title,
+             seriestype = :scatter, legend = false,
+             xlabel = "Re", ylabel = "Im",
+             xlims = (-1, 1), ylims = (-1, 1),
+             aspect_ratio = 1,
+             framestyle = :origin)
+    plot!(Shape(circleshape...), lw = 2, linestyle = :dash, linecolor = :green,
+          fill = false, legend = false, fillalpha = 0)
+    return p
+end
+

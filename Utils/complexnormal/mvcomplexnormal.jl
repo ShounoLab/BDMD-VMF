@@ -1,5 +1,6 @@
 using Distributions
 using LinearAlgebra
+using PDMats
 using SparseArrays
 using Base: rand
 include("./AbstractComplexDist.jl")
@@ -43,7 +44,7 @@ end
 
 function MvComplexNormal(μ :: AbstractVector{<: Union{Real, Complex}}, σ :: Float64)
     d = length(μ)
-    Γ = Matrix{Float64}(σ^2 * I, d, d)
+    Γ = spdiagm(0 => fill(σ^2, d))
     return MvComplexNormal(μ, Γ)
 end
 
@@ -55,8 +56,8 @@ function Base.rand(mvcn :: MvComplexNormal{T, S},
     d = length(μ)
 
     μ_multivariate = vcat(real.(μ), imag.(μ))
-    Γ_multivariate = 0.5 * [real.(Γ) -imag.(Γ); imag.(Γ) real.(Γ)]
-    Γ_multivariate = 0.5 * (Γ_multivariate + Γ_multivariate')
+    Γ_multivariate = 0.5 .* [real.(Γ) -imag.(Γ); imag.(Γ) real.(Γ)]
+    Γ_multivariate = 0.5 .* (Γ_multivariate .+ Γ_multivariate')
 
     if !isposdef(Γ_multivariate)
         eig_Γ = eigen(Γ_multivariate)

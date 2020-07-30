@@ -142,7 +142,7 @@ end
 p = plot(p1, p2, dpi = 150)
 savefig(p, "$outdir/oscillator_Ws.png")
 
-X_preds = reconstruct(dp_ary, hp, sp, 5000, 2000)
+X_preds = reconstruct_bdmd_missingvals(dp_ary, hp, sp, 5000, 2000)
 
 X1 = real.(X)
 X2 = imag.(X)
