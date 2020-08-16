@@ -100,11 +100,11 @@ X_meanreconst_bdmd = reconstruct_pointest(dp_mean, hp)
 X1, X2 = abs.(X_reconst_dmd), abs.(X_meanreconst_bdmd)
 X3, X4 = abs.(X - X_reconst_dmd), abs.(X - X_meanreconst_bdmd)
 cmin, cmax = minimum(hcat(X1, X2)), maximum(hcat(X1, X2))
-p1 = heatmap(X1, title = "DMD", clims = (cmin, cmax))
-p2 = heatmap(X2, title = "BDMD-VMF (EAP)", clims = (cmin, cmax))
+p1 = heatmap(t_ary, config.gridpoints, X1, title = "DMD", clims = (cmin, cmax))
+p2 = heatmap(t_ary, config.gridpoints, X2, title = "BDMD-VMF (EAP)", clims = (cmin, cmax))
 cmin, cmax = minimum(hcat(X3, X4)), maximum(hcat(X3, X4))
-p3 = heatmap(X3, title = "DMD (abs. error)", clims = (cmin, cmax))
-p4 = heatmap(X4, title = "BDMD-VMF (abs. error)", clims = (cmin, cmax))
+p3 = heatmap(t_ary, config.gridpoints, X3, title = "DMD (abs. error)", clims = (cmin, cmax))
+p4 = heatmap(t_ary, config.gridpoints, X4, title = "BDMD-VMF (abs. error)", clims = (cmin, cmax))
 p = plot(p1, p2, p3, p4, dpi = 200)
 savefig(p, "$outdir/BDMD_reconst.png")
 
@@ -116,6 +116,21 @@ savefig(p, "$outdir/DMD_BDMD_eigvals.png")
 
 
 X_preds = reconstruct_bdmd(dp_ary, hp, sp, mc)
+
+heatmap(real.(X))
+X_quantiles = get_quantiles(X_preds, interval = 0.95)
+d = 125
+point_frac = Rational(config.gridpoints[d])
+p = plot(abs.(X[d, :]),
+         ribbon = (abs.(X[d, :]) .- X_quantiles["abs"][d, :, 1],
+                   X_quantiles["abs"][d, :, 2] .- abs.(X[d, :])),
+         line = (:dot, 2), label = "original", legend = :none,
+         linecolor = :deepskyblue4, fillcolor = :slategray,
+         xlabel = "t", ylabel = "|psi|",
+         title = "predictive interval at xi = $(point_frac.num) / $(point_frac.den)",
+         dpi = 200)
+savefig(p, "$outdir/NLSE_predictive.png")
+
 
 @save "$outdir/mcmc_nlse.jld2" X X_preds dp_ary logliks hp mc
 #@load "$outdir/mcmc_nlse.jld2" X X_preds dp_ary logliks hp mc

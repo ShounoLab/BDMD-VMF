@@ -207,3 +207,20 @@ function reconstruct_bdmd(
     end
     return X_preds
 end
+
+
+function get_quantiles(X_preds :: Array{ComplexF64}; interval = 0.95)
+    α = (1 - interval) / 2
+    D, T = size(X_preds)[1], size(X_preds)[2]
+    X_quantiles_real = Array{Float64, 3}(undef, (D, T, 2))
+    X_quantiles_imag = Array{Float64, 3}(undef, (D, T, 2))
+    X_quantiles_abs = Array{Float64, 3}(undef, (D, T, 2))
+    for d in 1:D
+        map(t -> X_quantiles_real[d, t, :] = quantile(real.(X_preds[d, t, :]), [α, 1-α]), 1:T)
+        map(t -> X_quantiles_imag[d, t, :] = quantile(imag.(X_preds[d, t, :]), [α, 1-α]), 1:T)
+        map(t -> X_quantiles_abs[d, t, :] = quantile(abs.(X_preds[d, t, :]), [α, 1-α]), 1:T)
+    end
+    return Dict("real" => X_quantiles_real,
+                "imag" => X_quantiles_imag,
+                "abs" => X_quantiles_abs)
+end
