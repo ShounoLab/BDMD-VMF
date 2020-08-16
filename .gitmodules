@@ -1,3 +1,6 @@
 [submodule "Utils/NLSESimulations"]
 	path = Utils/NLSESimulations
 	url = git@github.com:ShounoLab/NLSESimulations.git
+[submodule "Utils/NonlinearSimulations"]
+	path = Utils/NonlinearSimulations
+	url = git@github.com:ShounoLab/NonlinearSimulations.git
