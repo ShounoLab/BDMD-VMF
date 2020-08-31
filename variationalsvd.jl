@@ -40,7 +40,7 @@ end
 
 function loglik(X :: Matrix{Complex{Float64}}, sp :: SVDParams, hp :: SVDHyperParams)
     M = sp.Ubar * sp.Vbar'
-    return -(hp.D * hp.T) * log(π * sp.s²) - tr((X - M)' * (X - M)) / sp.s²
+    return real(-(hp.D * hp.T) * log(π * sp.s²) - tr((X - M)' * (X - M)) / sp.s²)
 end
 
 function freeenergy(X :: Matrix{Complex{Float64}}, sp :: SVDParams, hp :: SVDHyperParams)

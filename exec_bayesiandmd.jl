@@ -1,6 +1,7 @@
 using Plots
 using StatsBase
 using JLD2
+using Random
 include("variationalsvd.jl")
 include("bayesiandmd.jl")
 include("DMD.jl")
@@ -17,9 +18,10 @@ end
 
 
 ### Nonlinear Schrodinger Equation
+Random.seed!(123)
 Ngrids = 256 # Number of Fourier modes
 L = 30.0 # Space period
-Δt = 2π / 21
+Δt = 2π / 256
 t_end = 2π
 Nsteps = round(Int, t_end / Δt)
 
@@ -39,7 +41,6 @@ p = heatmap(t_ary, config.gridpoints, abs.(X),
             title = "original", xlabel = "t", ylabel = "x")
 savefig(p, "$outdir/NLSE_pseudospectral.pdf")
 
-#K = 8
 K = 4
 naive_dp = solve_dmd(X, K)
 
@@ -75,7 +76,7 @@ p = plot(p1, p2, p3)
 
 
 ### Bayesian DMD ###
-mc = MCMCConfig(7500, 3000, 1e-2, 1e-1, 1e-2)
+mc = MCMCConfig(7500, 5000, 1e-2, 1e-1, 1e-2)
 hp = BDMDHyperParams(sp.Ubar, sp.Σbar_U, 1e5, 1e5, 0.01, 0.01, D, T, K)
 dp_ary, logliks = run_sampling(X, hp, mc)
 
@@ -96,6 +97,7 @@ plot([dp_ary[i].σ² for i in 1:length(dp_ary)])
 
 dp_mean = mean_bdmd(dp_ary, hp, mc)
 X_meanreconst_bdmd = reconstruct_pointest(dp_mean, hp)
+@save "$outdir/mcmc_nlse_seed123.jld2" X X_meanreconst_bdmd dp_ary logliks hp mc
 
 
 X1, X2 = abs.(X_reconst_dmd), abs.(X_meanreconst_bdmd)
@@ -133,16 +135,16 @@ p = plot(abs.(X[d, :]),
 savefig(p, "$outdir/NLSE_predictive.png")
 
 
-@save "$outdir/mcmc_nlse.jld2" X X_preds dp_ary logliks hp mc
+#@save "$outdir/mcmc_nlse.jld2" X X_preds dp_ary logliks hp mc
 #@load "$outdir/mcmc_nlse.jld2" X X_preds dp_ary logliks hp mc
 
 
 ### Burgers' equation
-
+Random.seed!(123)
 Ngrids = 256 # Number of Fourier modes
 L = 30.0 # Space period
-Δt = 1.0
 t_end = 30.0
+Δt = 1.0
 Nsteps = round(Int, t_end / Δt)
 ν = 0.1
 
@@ -192,7 +194,7 @@ p = plot(p1, p2, p3)
 
 
 ### Bayesian DMD ###
-mc = MCMCConfig(7500, 3000, 1e-2, 1e-1, 1e-2)
+mc = MCMCConfig(7500, 5000, 1e-2, 1e-1, 1e-2)
 hp = BDMDHyperParams(sp.Ubar, sp.Σbar_U, 1e5, 1e5, 0.01, 0.01, D, T, K)
 dp_ary, logliks = run_sampling(complex.(X), hp, mc)
 
@@ -201,6 +203,7 @@ plot(logliks)
 
 dp_mean = mean_bdmd(dp_ary, hp, mc)
 X_meanreconst_bdmd = reconstruct_pointest(dp_mean, hp)
+@save "$outdir/mcmc_burgers_seed123.jld2" X X_meanreconst_bdmd dp_ary logliks hp mc
 
 X1, X2 = abs.(X_reconst_dmd), abs.(X_meanreconst_bdmd)
 X3, X4 = abs.(X - X_reconst_dmd), abs.(X - X_meanreconst_bdmd)
@@ -222,7 +225,7 @@ savefig(p, "$outdir/DMD_BDMD_eigvals_burgers.png")
 X_preds = reconstruct_bdmd(dp_ary, hp, sp, mc)
 
 X_quantiles = get_quantiles(X_preds, interval = 0.95)
-d = 125
+d = 190
 point_frac = Rational(config.gridpoints[d])
 p = plot(abs.(X[d, :]),
          ribbon = (abs.(X[d, :]) .- X_quantiles["abs"][d, :, 1],
@@ -234,6 +237,5 @@ p = plot(abs.(X[d, :]),
          dpi = 200)
 savefig(p, "$outdir/Burgers_predictive.png")
 
-
-@save "$outdir/mcmc_burgers.jld2" X X_preds dp_ary logliks hp mc
+#@save "$outdir/mcmc_burgers.jld2" X X_preds dp_ary logliks hp mc
 #@load "$outdir/mcmc_burgers.jld2" X X_preds dp_ary logliks hp mc
