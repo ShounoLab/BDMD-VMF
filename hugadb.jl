@@ -13,11 +13,7 @@ using CSV
 using DataFrames
 using JLD2
 using Random
-using MKLSparse
-using LaTeXStrings
 using Colors
-using StatsBase
-
 include("variationalsvd_missingvals.jl")
 include("bayesiandmd_missingvals.jl")
 
@@ -52,7 +48,6 @@ X_missing[1:12, 1:60] .= missing
 #heatmap(real.(X_missing), dpi = 300)
 #include("Utils/toydata.jl")
 #X_missing = make_missing(X, prob = 0.5)
-
 sp, vhp, freeenergies, logliks_svd = bayesiansvd(X_missing, K, 100,
                                                  σ²_U = 1e10, σ²_V = 1.0,
                                                  learn_C_V = false,
@@ -95,56 +90,58 @@ X_mean = reconstruct_map(mean_bdmd(dp_ary, hp, mc.burnin), hp)
 X_preds = reconstruct(dp_ary, hp, sp, 5000, mc.burnin)
 @save "$outdir/mcmc_cycling_renconst_maskmissing2.jld2" X_preds X_mean
 
-λs = Array{ComplexF64, 2}(undef, hp.K, n_iter)
-Ws = Array{ComplexF64, 3}(undef, hp.K, hp.K, n_iter)
-for k in 1:hp.K
-    λs[k, :] = [dp_ary[i].λ[k] for i in 1:n_iter]
-    for l in 1:hp.K
-        Ws[k, l, :] = [dp_ary[i].W[k, l] for i in 1:n_iter]
-    end
-end
-p1 = plot(real.(transpose(λs)), title = "traceplot of eigvals (real)")
-for k in 1:hp.K
-    hline!(real.([naive_dp.λ[k]]), lw = 2, label = "l$k")
-end
-p2 = plot(imag.(transpose(λs)), title = "traceplot of eigvals (imag)")
-for k in 1:hp.K hline!(imag.([naive_dp.λ[k]]), lw = 2, label = "l$k")
-end
-plot(p1, p2)
-
-
-Ws = reshape(Ws, (hp.K * hp.K, n_iter))
-p1 = plot(real.(transpose(Ws)), title = "traceplot of modes (real)")
-p2 = plot(imag.(transpose(Ws)), title = "traceplot of modes (imag)")
-p = plot(p1, p2, dpi = 150)
-
-plot([dp_ary[i].σ² for i in 1:n_iter])
-cmin, cmax = minimum(real.(hcat(real.(X), real.(X_mean)))), maximum(real.(hcat(real.(X), real.(X_mean))))
-X_mean = reconstruct_map(mean_bdmd(dp_ary, hp, mc.burnin), hp)
-p1 = heatmap(real.(X), clims = (cmin, cmax))
-p2 = heatmap(real.(X_mean), clims = (cmin, cmax))
-plot(p1, p2)
 
 
 @load "$outdir/mcmc_cycling_maskmissing2_K2.jld2" X X_missing dp_ary hp sp vhp
 @load "$outdir/mcmc_cycling_renconst_maskmissing2.jld2" X_preds X_mean
+df_stan_0025 = CSV.read("df_0025.csv")[:, 2:end]
+df_stan_mean = CSV.read("df_mean.csv")[:, 2:end]
+df_stan_0975 = CSV.read("df_0975.csv")[:, 2:end]
 
 X_quantiles_real, X_quantiles_imag = get_quantiles(X_preds, interval = 0.95)
+X_quantiles_stan = Array{Float64}(undef, size(X_quantiles_real))
+X_quantiles_stan[:, :, 1] .= Matrix(df_stan_0025)
+X_quantiles_stan[:, :, 2] .= Matrix(df_stan_0975)
 
-d = 10
-p = plot(real.(X[d, :]), dpi = 300, ribbon = (real.(X[d, :]) .- X_quantiles_real[d, :, 1],
-                                          X_quantiles_real[d, :, 2] .- real.(X[d, :])),
-         line = (:dot, 2), label = "original", legend = :none,
-         linecolor = :deepskyblue4, fillcolor = :slategray)
+# d = 5, 10, 14, 18
+d = 14
+p = plot(real.(X[d, :]), dpi = 300, ribbon = (real.(X[d, :]) .- X_quantiles_stan[d, :, 1],
+                                          X_quantiles_stan[d, :, 2] .- real.(X[d, :])),
+         line = (:dot, 4), label = "original", legend = :none,
+         linecolor = :deepskyblue4, fillcolor = :darkslategray, fillalpha = 0.3,
+         xtickfontsize = 14,
+         ytickfontsize = 14)
+plot!(real.(X[d, :]), dpi = 300, ribbon = (real.(X[d, :]) .- X_quantiles_real[d, :, 1],
+                                           X_quantiles_real[d, :, 2] .- real.(X[d, :])),
+      line = (:dot, 4), label = "original", legend = :none,
+      linecolor = :deepskyblue4, fillcolor = :brown, fillalpha = 0.3)
 plot!(real.(X_missing[d, :]), line = (:solid, 3), label = "observed",
-      markercolor = :royalblue3, markeralpha = 0.5, seriestype = :scatter)
+      markercolor = :royalblue3, markeralpha = 0.5,
+      markersize = 6, markerstrokewidth = 2,
+      seriestype = :scatter)
 p = plot(p, dpi = 300)
 savefig(p, "$outdir/cycling_$(string(names(df[:, r"g"])[d]))_95.pdf")
 
 labels = string.(names(df[datarange, r"g"]))
 labels = chop.(labels, head = 5, tail = 0)
-p = heatmap(real.(X), lw = 2, yticks = (1:hp.D, labels), dpi = 300, legend = :outertopright)
+p = heatmap(real.(X), clims = (-1.0, 1.0),
+            dpi = 300,
+            xtickfontsize = 9,
+            ytickfontsize = 12,
+            xguidefontsize = 22,
+            yguidefontsize = 22,
+            legendfontsize = 22,
+            grid = :none,
+            left_margin = -3mm)
 savefig(p, "$outdir/cycling_data.pdf")
-p = heatmap(real.(X_missing), lw = 2, yticks = (1:hp.D, labels), dpi = 300,
-            legend = :outertopright, grid = :none, margin = 0mm)
+p = heatmap(replace(real.(X_missing), missing => NaN), clims = (-1.0, 1.0),
+            yticks = (1:length(labels), labels),
+            dpi = 300,
+            xtickfontsize = 9,
+            ytickfontsize = 12,
+            xguidefontsize = 22,
+            yguidefontsize = 22,
+            legendfontsize = 22,
+            grid = :none,
+            left_margin = -3mm)
 savefig(p, "$outdir/cycling_data_missing.pdf")
