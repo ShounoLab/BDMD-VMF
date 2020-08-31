@@ -9,6 +9,7 @@
 
 using Plots
 using Plots.PlotMeasures
+using DelimitedFiles
 using CSV
 using DataFrames
 using JLD2
@@ -45,6 +46,9 @@ naive_dp = solve_dmd(X, K)
 X_missing = deepcopy(X)
 X_missing[9:end, 76:end] .= missing
 X_missing[1:12, 1:60] .= missing
+
+writedlm("$outdir/hugadb_original.csv", real.(X), ",")
+writedlm("$outdir/hugadb_missing.csv", real.(X_missing), ",")
 #heatmap(real.(X_missing), dpi = 300)
 #include("Utils/toydata.jl")
 #X_missing = make_missing(X, prob = 0.5)
@@ -121,27 +125,3 @@ plot!(real.(X_missing[d, :]), line = (:solid, 3), label = "observed",
       seriestype = :scatter)
 p = plot(p, dpi = 300)
 savefig(p, "$outdir/cycling_$(string(names(df[:, r"g"])[d]))_95.pdf")
-
-labels = string.(names(df[datarange, r"g"]))
-labels = chop.(labels, head = 5, tail = 0)
-p = heatmap(real.(X), clims = (-1.0, 1.0),
-            dpi = 300,
-            xtickfontsize = 9,
-            ytickfontsize = 12,
-            xguidefontsize = 22,
-            yguidefontsize = 22,
-            legendfontsize = 22,
-            grid = :none,
-            left_margin = -3mm)
-savefig(p, "$outdir/cycling_data.pdf")
-p = heatmap(replace(real.(X_missing), missing => NaN), clims = (-1.0, 1.0),
-            yticks = (1:length(labels), labels),
-            dpi = 300,
-            xtickfontsize = 9,
-            ytickfontsize = 12,
-            xguidefontsize = 22,
-            yguidefontsize = 22,
-            legendfontsize = 22,
-            grid = :none,
-            left_margin = -3mm)
-savefig(p, "$outdir/cycling_data_missing.pdf")
