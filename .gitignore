@@ -18,13 +18,13 @@
 !*.r
 !*.stan
 
-!*.tex
-!*.cls
-!*.sty
-!*.bib
-!*.bst
-!*.bbl
-!*.log
+#!*.tex
+#!*.cls
+#!*.sty
+#!*.bib
+#!*.bst
+#!*.bbl
+#!*.log
 
 #!*.svg
 #!*.pdf
