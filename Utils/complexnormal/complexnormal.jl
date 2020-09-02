@@ -1,7 +1,7 @@
 using Distributions
 using Base: rand
 using LinearAlgebra
-include("./AbstractComplexDist.jl")
+include("$(@__DIR__)/AbstractComplexDist.jl")
 
 struct ComplexNormal{T <: Complex, S <: Real} <: AbstractComplexDist
     μ :: T

@@ -3,7 +3,7 @@ using LinearAlgebra
 using Distributions
 using ProgressMeter
 
-include("ComplexNormal.jl")
+include("$(@__DIR__)/ComplexNormal.jl")
 
 mutable struct SVDParams
     Ubar :: Matrix{Complex{Float64}}

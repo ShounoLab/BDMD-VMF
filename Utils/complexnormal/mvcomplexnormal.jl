@@ -3,7 +3,7 @@ using LinearAlgebra
 using PDMats
 using SparseArrays
 using Base: rand
-include("./AbstractComplexDist.jl")
+include("$(@__DIR__)/AbstractComplexDist.jl")
 
 struct MvComplexNormal{T <: AbstractVector{<: Union{Real, Complex}},
                        S <: AbstractMatrix} <: AbstractComplexDist
