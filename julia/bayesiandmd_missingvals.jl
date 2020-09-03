@@ -269,11 +269,10 @@ function reconstruct_bdmd_missingvals(
     hp :: BDMDHyperParams, sp :: SVDParams,
     N :: Int64, burnin :: Int64)
 
-    X_preds = Array{ComplexF64, 3}(undef, (hp.D, hp.T, N))
-    progress = Progress(N)
-    for n in 1:N
-        ind = rand((burnin + 1):length(dp_ary))
-        λ, W, σ² = dp_ary[ind].λ, dp_ary[ind].W, dp_ary[ind].σ²
+    X_preds = Array{ComplexF64, 3}(undef, (hp.D, hp.T, N - burnin))
+    progress = Progress(N - burnin)
+    for n in (burnin + 1):N
+        λ, W, σ² = dp_ary[n].λ, dp_ary[n].W, dp_ary[n].σ²
 
         I_D = spdiagm(0 => ones(hp.D))
         G = zeros(Complex{Float64}, hp.K, hp.T)
@@ -295,9 +294,10 @@ function reconstruct_bdmd_missingvals(
 
         vecXbar = Σₓ * GtId * Σᵤ * Γᵤ⁻¹ * hp.vecUbar / σ²
 
-        X_preds[:, :, n] .= reshape(rand(MvComplexNormal(vecXbar, Σₓ, check_posdef = false,
-                                                   check_hermitian = false)),
-                              (hp.D, hp.T))
+        X_preds[:, :, n - burnin] .= reshape(rand(MvComplexNormal(vecXbar, Σₓ,
+                                                                  check_posdef = false,
+                                                                  check_hermitian = false)),
+                                             (hp.D, hp.T))
         next!(progress)
     end
     return X_preds
