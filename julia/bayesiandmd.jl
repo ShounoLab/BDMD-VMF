@@ -169,7 +169,7 @@ end
 
 function reconstruct_pointest(dp :: BDMDParams, hp :: BDMDHyperParams)
     X_reconst_bdmd = Matrix{ComplexF64}(undef, size(X))
-    λ, W, σ² = dp_ary[end].λ, dp_ary[end].W, dp_ary[end].σ²
+    λ, W, σ² = dp.λ, dp.W, dp.σ²
     for t in 1:hp.T
         gₜ = dp.W * (dp.λ .^ t)
         Gₜ = (gₜ * gₜ' / dp.σ² + hp.Σbar_U ^ (-1)) ^ (-1)
