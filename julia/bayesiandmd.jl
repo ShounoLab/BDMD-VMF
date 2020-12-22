@@ -52,11 +52,15 @@ end
 function loglik(X :: Matrix{Complex{Float64}}, dp :: BDMDParams,
                 hp :: BDMDHyperParams)
     logL = 0
+    Σbar⁻¹ = inv(hp.Σbar_U)
     for t in 1:hp.T
         gₜ = dp.W * (dp.λ .^ t)
-        Gₜ = (gₜ * gₜ' / dp.σ² + hp.Σbar_U ^ (-1)) ^ (-1)
-        σₜ² = real(dp.σ² * (1 - gₜ' * Gₜ * gₜ) ^ (-1))
-        xₜ = σₜ² / dp.σ² * hp.Ubar * hp.Σbar_U ^ (-1) * Gₜ * gₜ
+        Σtilde⁻¹ = gₜ * gₜ' ./ dp.σ² .+ Σbar⁻¹
+
+        # Sherman-Morrison formula
+        Σtilde = hp.Σbar_U * gₜ * gₜ' * hp.Σbar_U ./ (dp.σ² + gₜ' * hp.Σbar_U * gₜ) .+ hp.Σbar_U
+        σₜ² = real(dp.σ² / (1 - gₜ' * Σtilde * gₜ))
+        xₜ = σₜ² / dp.σ² * hp.Ubar * Σbar⁻¹ * Σtilde * gₜ
         logL += loglikelihood(MvComplexNormal(xₜ, √(σₜ²)), X[:, t])
     end
     return logL
