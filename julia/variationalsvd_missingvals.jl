@@ -5,15 +5,15 @@ using ProgressMeter
 
 include("$(@__DIR__)/ComplexNormal.jl")
 
-mutable struct SVDParams
-    Ubar :: Matrix{Complex{Float64}}
-    Vbar :: Matrix{Complex{Float64}}
-    Σbar_U :: Array{Complex{Float64}, 3}
-    Σbar_V :: Array{Complex{Float64}, 3}
-    Σbar_U_inv :: Array{Complex{Float64}, 3}
-    Σbar_V_inv :: Array{Complex{Float64}, 3}
-    C_U :: Matrix{Float64}
-    C_V :: Matrix{Float64}
+mutable struct SVDParams where {F <: Union{Float64, ComplexF64}}
+    Ubar :: Matrix{F}
+    Vbar :: Matrix{F}
+    Σbar_U :: Array{F, 3}
+    Σbar_V :: Array{F, 3}
+    Σbar_U_inv :: Array{F, 3}
+    Σbar_V_inv :: Array{F, 3}
+    C_U :: Diagonal{Float64}
+    C_V :: Diagonal{Float64}
     s² :: Float64
 end
 
@@ -23,32 +23,38 @@ struct SVDHyperParams
     K :: Int64
 end
 
-function SVDParams(Ubar :: Matrix{Complex{Float64}}, Vbar :: Matrix{Complex{Float64}},
-                   Σbar_U :: Array{Complex{Float64}, 3}, Σbar_V :: Array{Complex{Float64}, 3},
-                   C_U :: Matrix{Float64}, C_V :: Matrix{Float64}, s² :: Float64)
+function SVDParams(Ubar :: Matrix{F}, Vbar :: Matrix{F},
+                   Σbar_U :: Array{F, 3}, Σbar_V :: Array{F, 3},
+                   C_U :: AbstractMatrix{F}, C_V :: AbstractMatrix{F},
+                   s² :: Float64) where {F <: Union{Float64, ComplexF64}}
     # outer constructor
 
     D, K = size(Ubar)
     T = size(Vbar)[1]
-    Σbar_U_inv = Array{Complex{Float64}, 3}(undef, (D, K, K))
-    Σbar_V_inv = Array{Complex{Float64}, 3}(undef, (T, K, K))
+    Σbar_U_inv = Array{F, 3}(undef, (D, K, K))
+    Σbar_V_inv = Array{F, 3}(undef, (T, K, K))
 
     map(d -> Σbar_U_inv[d, :, :] = inv(Σbar_U[d, :, :]), 1:D)
     map(t -> Σbar_V_inv[t, :, :] = inv(Σbar_V[t, :, :]), 1:T)
 
-    return SVDParams(Ubar, Vbar, Σbar_U, Σbar_V, Σbar_U_inv, Σbar_V_inv, C_U, C_V, s²)
+    return SVDParams(Ubar, Vbar, Σbar_U, Σbar_V, Σbar_U_inv, Σbar_V_inv, Diagonal(C_U), Diagonal(C_V), s²)
 end
 
-function init_svdparams(X :: Matrix{Union{Missing, Complex{Float64}}}, D :: Int64, T :: Int64, K :: Int64,
-                        σ²_U :: Float64, σ²_V :: Float64)
-    Ubar = [rand(ComplexNormal()) for i in 1:D, j in 1:K]
-    Vbar = [rand(ComplexNormal()) for i in 1:T, j in 1:K]
+function init_svdparams(X :: Matrix{Union{Missing, Float64}}, D :: Int64, T :: Int64, K :: Int64,
+                        σ²_U :: Float64, σ²_V :: Float64) where {F <: Union{Float64, ComplexF64}}
+    if F <: Real
+        Ubar = rand(Normal(), (D, K))
+        Vbar = rand(Normal(), (T, K))
+    else
+        Ubar = [rand(ComplexNormal()) for i in 1:D, j in 1:K]
+        Vbar = [rand(ComplexNormal()) for i in 1:T, j in 1:K]
+    end
 
-    Σbar_U = Array{Complex{Float64}, 3}(undef, (D, K, K))
-    Σbar_V = Array{Complex{Float64}, 3}(undef, (T, K, K))
+    Σbar_U = Array{F, 3}(undef, (D, K, K))
+    Σbar_V = Array{F, 3}(undef, (T, K, K))
 
-    [@views Σbar_U[d, :, :] .= diagm(ones(Complex{Float64}, K)) for d in 1:D]
-    [@views Σbar_V[t, :, :] .= diagm(ones(Complex{Float64}, K)) for t in 1:T]
+    [@views Σbar_U[d, :, :] .= diagm(ones(F, K)) for d in 1:D]
+    [@views Σbar_V[t, :, :] .= diagm(ones(F, K)) for t in 1:T]
 
     C_U = diagm(fill(σ²_U, K))
     C_V = diagm(fill(σ²_V, K))
@@ -56,7 +62,7 @@ function init_svdparams(X :: Matrix{Union{Missing, Complex{Float64}}}, D :: Int6
     return SVDParams(Ubar, Vbar, Σbar_U, Σbar_V, C_U, C_V, s²)
 end
 
-function loglik(X :: Matrix{Union{Missing, Complex{Float64}}},
+function loglik(X :: Matrix{Union{Missing, Float64}},
                 sp :: SVDParams, hp :: SVDHyperParams)
     indices = findall(.!ismissing.(X))
     N = length(indices)
@@ -64,7 +70,20 @@ function loglik(X :: Matrix{Union{Missing, Complex{Float64}}},
     sum_in_l = 0.0
     for inds in indices
         d, t = inds[1], inds[2]
-        sum_in_l += abs(X[inds] - transpose(sp.Ubar[d, :]) * conj(sp.Vbar[t, :])) ^ 2
+        sum_in_l += abs(X[inds] - sp.Vbar[t, :]' * sp.Ubar[d, :]) ^ 2
+    end
+    return -N / 2 * log(2 * π * sp.s²) + sum_in_l / (2 * sp.s²)
+end
+
+function loglik(X :: Matrix{Union{Missing, ComplexF64}},
+                sp :: SVDParams, hp :: SVDHyperParams)
+    indices = findall(.!ismissing.(X))
+    N = length(indices)
+
+    sum_in_l = 0.0
+    for inds in indices
+        d, t = inds[1], inds[2]
+        sum_in_l += abs(X[inds] - sp.Vbar[t, :]' * sp.Ubar[d, :]) ^ 2
     end
     return -real(N * log(π * sp.s²) + sum_in_l / sp.s²)
 end
@@ -78,21 +97,27 @@ function freeenergy(X :: Matrix{Union{Missing, Complex{Float64}}},
 
     sum_in_f = 0.0
     for inds in indices
-        d, t = inds[1], inds[2]
+        d, t = inds
 
 
-        sum_in_f += X[inds] - 2 * real(X[inds] * transpose(sp.Vbar[t, :]) * conj(sp.Ubar[d, :])) +
-                    tr((sp.Σbar_U[d, :, :] + conj(sp.Ubar[d, :]) * transpose(sp.Ubar[d, :])) *
-                       (sp.Σbar_V[t, :, :] + conj(sp.Vbar[t, :]) * transpose(sp.Vbar[t, :])))
+        #sum_in_f += X[inds] - 2 * real(X[inds] * sp.Ubar[d, :]' * sp.Vbar[t, :]) +
+        #            tr((sp.Σbar_U[d, :, :] + sp.Ubar[d, :]' * sp.Ubar[d, :]) *
+        #               (sp.Σbar_V[t, :, :] + sp.Vbar[t, :]' * sp.Vbar[t, :]))
+        UU = sp.Ubar[d, :]' * sp.Ubar[d, :]
+        VV = sp.Vbar[t, :]' * sp.Vbar[t, :]
+        sum_in_f += X[inds] - 2 * real(X[inds] * sp.Ubar[d, :]' * sp.Vbar[t, :]) +
+                    dot(sp.Σbar_U[d, :, :], sp.Σbar_V[t, :, :]) + dot(sp.Σbar_U[d, :, :], VV) +
+                    dot(sp.Σbar_V[t, :, :], UU) + dot(UU, VV)
     end
 
-    logdet_Σbar_U = sum([log(real(det(sp.Σbar_U[d, :, :]))) for d in 1:D])
-    logdet_Σbar_V = sum([log(real(det(sp.Σbar_V[t, :, :]))) for t in 1:T])
+    logdet_Σbar_U = sum([(real(logdet(sp.Σbar_U[d, :, :]))) for d in 1:D])
+    logdet_Σbar_V = sum([(real(logdet(sp.Σbar_V[t, :, :]))) for t in 1:T])
 
     sum_Σbar_U = reshape(sum(sp.Σbar_U, dims = 1), (K, K))
     sum_Σbar_V = reshape(sum(sp.Σbar_V, dims = 1), (K, K))
 
-    fenergy = N * log(π * sp.s²) + D * log(det(sp.C_U)) + T * log(det(sp.C_V)) -
+    # TODO: To be fast
+    fenergy = N * log(π * sp.s²) + D * sum(log.(diag(sp.C_U))) + T * sum(log.(sp.C_V)) -
               logdet_Σbar_U - logdet_Σbar_V - (D + T) * K +
               tr(sp.C_U ^ (-1) * (sum_Σbar_U + sp.Ubar' * sp.Ubar)) +
               tr(sp.C_V ^ (-1) * (sum_Σbar_V + sp.Vbar' * sp.Vbar)) +
